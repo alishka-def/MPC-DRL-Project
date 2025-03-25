@@ -10,4 +10,10 @@
         <route-files value="network_example.rou.xml"/>
     </input>
 
+    <time>
+        <begin value="0"/>
+        <step-length value="0.1"/>
+        <end value="600"/>
+    </time>
+
 </sumoConfiguration>

@@ -4,8 +4,22 @@
 -->
 
 <routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/routes_file.xsd">
-    <!-- Vehicles, persons and containers (sorted by depart) -->
-    <flow id="f_0" begin="0.00" from="O2" to="D1" via="L2" end="3600.00" vehsPerHour="500"/>
-    <flow id="flow1" begin="0.00" color="red" from="O1" to="D1" via="L1a L1b L1c L2" end="3600.00" vehsPerHour="3495.15"/>
-    <flow id="flow2" begin="0.00" departLane="1" color="magenta" from="O1" to="D1" via="L1a L1b L1c L2" end="3600.00" vehsPerHour="3495.15"/>
+
+<vType id="car" accel="2.6" decel="4.5" sigma="0.5" length="5" minGap="2.5" maxSpeed="33.33" guiShape="passenger"/>
+
+<!--Defining routes for vehicles-->
+<route id="r_O2_D1" edges="O2 L2 D1"/>
+<route id="r_O1_D1" edges="O1 L1a L1b L1c L2 D1"/>
+
+<!--Flows with exponential headways -->
+<flow id="f_0" route="r_O2_D1" type="car" begin="0.00" end="3600.00" period="exp(7.2)" color="blue"/>
+<flow id="flow1" route="r_O1_D1" type="car" begin="0.00" end="3600.00" period="exp(1.03)" color="red"/>
+<flow id="flow2" route="r_O1_D1" type="car" begin="0.00" end="3600.00" period="exp(1.03)" color="magenta" departLane="1"/>
+
 </routes>
+
+
+
+
+
+
