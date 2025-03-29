@@ -60,7 +60,7 @@ def get_traffic_state(lane_id):
 # Taking simulation steps until there are no more vehicles expected
 
 # the loop runs the simulation as long as there are vehicles expected to be inserted or still on the road
-while traci.simulation.getMinExpectedNumber() > 0 and traci.simulation.getTime() < 600:
+while traci.simulation.getMinExpectedNumber() > 0 and traci.simulation.getTime() < 9000:
     traci.simulationStep() # simulation step is 0.1 seconds
 
     # Getting the current simulation time
