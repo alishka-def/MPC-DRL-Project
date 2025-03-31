@@ -1,6 +1,10 @@
 import os
 import sys
 import matplotlib.pyplot as plt
+import casadi as cs
+import numpy as np
+from csnlp import Nlp
+from csnlp.wrappers import Mpc
 
 # Setting up SUMO environment
 if 'SUMO_HOME' in os.environ:
@@ -105,6 +109,8 @@ while traci.simulation.getMinExpectedNumber() > 0 and traci.simulation.getTime()
         traffic_data[lane]["density"].append(density)
 
         print(f"  {lane}: Flow = {flow:.2f} veh/h | Speed = {speed:.2f} km/h | Density = {density:.2f} veh/km")
+
+print(traci.trafficlight.getIDList())
 
 traci.close()
 
