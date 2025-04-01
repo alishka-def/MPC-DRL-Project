@@ -50,7 +50,7 @@ def custom_light_state(tl_id, state_string):
 def set_lane_speed(lane_id, speed):
     traci.lane.setMaxSpeed(lane_id,speed)
 
-# Getting traffic states
+# Getting traffic states --> maybe get for edge. density has to be per lane.
 def get_traffic_state(lane_id):
     vehicle_count = traci.lane.getLastStepVehicleNumber(lane_id)
     speed_mps = traci.lane.getLastStepMeanSpeed(lane_id)
@@ -110,7 +110,6 @@ while traci.simulation.getMinExpectedNumber() > 0 and traci.simulation.getTime()
 
         print(f"  {lane}: Flow = {flow:.2f} veh/h | Speed = {speed:.2f} km/h | Density = {density:.2f} veh/km")
 
-print(traci.trafficlight.getIDList())
 
 traci.close()
 
