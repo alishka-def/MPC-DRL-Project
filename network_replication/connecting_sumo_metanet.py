@@ -134,7 +134,7 @@ mpc.set_dynamics(F) # ensures that any control actions produce feasible system t
 # setting the optimization objective
 # before defining the objective, we set up parameters to hold the "last" (previous) control inputs
 v_ctrl_last = mpc.parameter("v_ctrl_last", (v_ctrl.size1(),1)) # parameter used to compute the difference between the previous and current control values
-r_last = mpc.parameter("r_last", r.size1(),1) # holds previous ramp metering values to enable penalization of abrupt changes
+r_last = mpc.parameter("r_last", (r.size1(), 1)) # holds previous ramp metering values to enable penalization of abrupt changes
 
 # --------------------------
 mpc.minimize(
@@ -151,12 +151,6 @@ opts = {
     "ipopt": {"max_iter": 500, "sb": "yes", "print_level": 0}, # 500-> max. number of iterations allowed for the solver
 }
 mpc.init_solver(solver="ipopt", opts=opts)
-
-# --------------------------
-# create initial conditions for metanet model --> these will be overridden by SUMO simulation
-rho = cs.DM([22, 22, 22.5, 24, 30, 32]) # defines the starting density for each road segment
-v = cs.DM([80, 80, 78, 72.5, 66, 62]) # setting initial speed for each road segment
-w = cs.DM([0, 0]) # initial queue length at the network's origins -> no vehicles are queued at the start of the simulation
 
 # --------------------------
 # Setting up SUMO environment
@@ -182,25 +176,10 @@ traci.start(Sumo_config)
 # Defining edge IDs
 mainline_edges = ["O1", "L1a", "L1b", "L1c", "L2", "D1"]
 onramp_edges = ["O2"]
-# TODO: add queue actual ID
 queue_edge_main = "E0" # new edge added in netedit to measure queue length (find details in network file)
 default_speed = 28.33 # m/s --> 102 km/h
 
-# Initializing data containers for logging aggregated metric for the mainline and the on-ramp
-time_steps = []
-traffic_data = {
-    "mainline": {
-        "flow": [],
-        "speed": [],
-        "density": []
-    },
-    "onramp": {
-        "flow": [],
-        "speed": [],
-        "density": []
-    }
-}
-
+# --------------------------
 # this function filters the list of all lane IDs and returns those that
 # start with the given edge_id
 def get_lanes_of_edges(edge_id):
@@ -213,6 +192,7 @@ def get_lanes_of_edges(edge_id):
 # so I will just write them separately since they are known.
 
 edge_lengths = { # in m
+    "E0": 750,
     "O1": 1000,
     "L1a": 1000,
     "L1b": 1000,
@@ -238,7 +218,7 @@ def get_edge_density(edge_ids):
         total_vehicles += veh_count
         total_length += length
     density = total_vehicles/ (total_length/ 1000.0) # veh/km
-    return density
+    return cs.DM(density) # convert to casadi DM
 
 # computes the weighted average speed in km/h over multiple edges
 # the weights are given by the vehicle count on each edge
@@ -255,7 +235,7 @@ def get_edge_speed(edge_ids):
         avg_speed = weighted_speed_sum/ total_vehicles
     else:
         avg_speed = 0
-    return avg_speed * 3.6 # covert m/s to km/h
+    return cs.DM(avg_speed * 3.6) # covert m/s to km/h
 
 # aggregating flow (in veh/h) over multiple edges
 # calculating flow by (aggregated density in veh/km) * (weighted average speed in km/h)
@@ -264,7 +244,7 @@ def get_edge_flow(edge_ids):
     density = get_edge_density(edge_ids)
     avg_speed = get_edge_speed(edge_ids)
     flow = density * avg_speed
-    return flow
+    return cs.DM(flow)
 
 # setting the maximum speed (in ms/s) for every lane on the given edges
 # since direct edge-level speed-setting is not available, this functon iterates over each edge's lanes
@@ -284,34 +264,7 @@ def get_edge_queues(mainlane_q, onramp_edge):
     onramp_q_n = traci.edge.getLastStepVehicleNumber(onramp_edge[0])
     return mainline_q_n, onramp_q_n
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# --------------------------
 
 v_ctrl_last = v[: L1.N][L1.vsl] # setting initial "last" variable speed control input
 r_last = cs.DM.ones(r.size1(), 1) # initializes the previous ramp metering control values
@@ -329,9 +282,9 @@ for k in range(demands.shape[0]): # iterates over each simulation time step, whe
     if k % M == 0: # mpc optimization is performed every M time steps. k is a simulation time step
         sol = mpc.solve( # solving optimization problem using the current state and forecast (TAKING THESE FROM SUMO)
             pars={
-                "rho_0": rho, # change to SUMo states
-                "v_0": v, # change to SUMo states
-                "w_0": w, # change to SUMo states
+                "rho_0": get_edge_density(mainline_edges), # change to SUMo states
+                "v_0": get_edge_speed(mainline_edges), # change to SUMo states
+                "w_0": get_edge_queues(mainline_edges), # change to SUMo states
                 "d": d_hat.T,
                 "v_ctrl_last": v_ctrl_last,
                 "r_last": r_last,
@@ -368,6 +321,31 @@ RHO, V, W, Q, Q_o, V_CTRL, R = (  # type: ignore[assignment]
 # compute TTS metric (Total-Time-Spent)
 tts = T * sum((rho * L * lanes).sum() + w.sum() for rho, w in zip(RHO, W))
 print(f"TTS = {tts:.3f} veh.h")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

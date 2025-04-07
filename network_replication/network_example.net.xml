@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2025-04-04 18:09:34 by Eclipse SUMO netedit Version 1.22.0
+<!-- generated on 2025-04-06 13:23:16 by Eclipse SUMO netedit Version 1.22.0
 <neteditConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/neteditConfiguration.xsd">
 
     <input>
@@ -43,63 +43,63 @@
     <location netOffset="0.00,0.00" convBoundary="-2066.00,397.82,4600.00,1100.00" origBoundary="-10000000000.00,-10000000000.00,10000000000.00,10000000000.00" projParameter="!"/>
 
     <edge id=":N0_0" function="internal">
-        <lane id=":N0_0_0" index="0" speed="57.95" length="0.30" shape="-1300.14,1098.40 -1299.85,1098.40"/>
-        <lane id=":N0_0_1" index="1" speed="57.95" length="0.30" shape="-1300.16,1101.60 -1299.85,1101.60"/>
+        <lane id=":N0_0_0" index="0" speed="28.33" length="0.30" shape="-1300.14,1098.40 -1299.85,1098.40"/>
+        <lane id=":N0_0_1" index="1" speed="28.33" length="0.30" shape="-1300.16,1101.60 -1299.85,1101.60"/>
     </edge>
     <edge id=":N1_0" function="internal">
-        <lane id=":N1_0_0" index="0" speed="102.00" length="0.10" shape="-300.00,1098.40 -300.00,1098.40"/>
-        <lane id=":N1_0_1" index="1" speed="102.00" length="0.10" shape="-300.00,1101.60 -300.00,1101.60"/>
+        <lane id=":N1_0_0" index="0" speed="28.33" length="0.10" shape="-300.00,1098.40 -300.00,1098.40"/>
+        <lane id=":N1_0_1" index="1" speed="28.33" length="0.10" shape="-300.00,1101.60 -300.00,1101.60"/>
     </edge>
     <edge id=":N1a_0" function="internal">
-        <lane id=":N1a_0_0" index="0" speed="102.00" length="0.10" shape="700.00,1098.40 700.00,1098.40"/>
-        <lane id=":N1a_0_1" index="1" speed="102.00" length="0.10" shape="700.00,1101.60 700.00,1101.60"/>
+        <lane id=":N1a_0_0" index="0" speed="28.33" length="0.10" shape="700.00,1098.40 700.00,1098.40"/>
+        <lane id=":N1a_0_1" index="1" speed="28.33" length="0.10" shape="700.00,1101.60 700.00,1101.60"/>
     </edge>
     <edge id=":N1b_0" function="internal">
-        <lane id=":N1b_0_0" index="0" speed="102.00" length="0.10" shape="1700.00,1098.40 1700.00,1098.40"/>
-        <lane id=":N1b_0_1" index="1" speed="102.00" length="0.10" shape="1700.00,1101.60 1700.00,1101.60"/>
+        <lane id=":N1b_0_0" index="0" speed="28.33" length="0.10" shape="1700.00,1098.40 1700.00,1098.40"/>
+        <lane id=":N1b_0_1" index="1" speed="28.33" length="0.10" shape="1700.00,1101.60 1700.00,1101.60"/>
     </edge>
     <edge id=":N2_0" function="internal">
         <lane id=":N2_0_0" index="0" speed="7.65" length="7.57" shape="2698.28,1094.04 2699.63,1095.95 2701.04,1097.31 2702.52,1098.13 2704.07,1098.40"/>
     </edge>
     <edge id=":N2_1" function="internal">
-        <lane id=":N2_1_0" index="0" speed="102.00" length="8.26" shape="2695.81,1098.40 2704.07,1098.40"/>
-        <lane id=":N2_1_1" index="1" speed="102.00" length="8.26" shape="2695.81,1101.60 2704.07,1101.60"/>
+        <lane id=":N2_1_0" index="0" speed="28.33" length="8.26" shape="2695.81,1098.40 2704.07,1098.40"/>
+        <lane id=":N2_1_1" index="1" speed="28.33" length="8.26" shape="2695.81,1101.60 2704.07,1101.60"/>
     </edge>
     <edge id=":N3_0" function="internal">
-        <lane id=":N3_0_0" index="0" speed="102.00" length="0.10" shape="3700.00,1098.40 3700.00,1098.40"/>
-        <lane id=":N3_0_1" index="1" speed="102.00" length="0.10" shape="3700.00,1101.60 3700.00,1101.60"/>
+        <lane id=":N3_0_0" index="0" speed="28.33" length="0.10" shape="3700.00,1098.40 3700.00,1098.40"/>
+        <lane id=":N3_0_1" index="1" speed="28.33" length="0.10" shape="3700.00,1101.60 3700.00,1101.60"/>
     </edge>
 
     <edge id="D1" from="N3" to="N_" priority="-1" spreadType="center" length="1000.00">
-        <lane id="D1_0" index="0" speed="102.00" length="1000.00" shape="3700.00,1098.40 4600.00,1098.40"/>
-        <lane id="D1_1" index="1" speed="102.00" length="1000.00" shape="3700.00,1101.60 4600.00,1101.60"/>
+        <lane id="D1_0" index="0" speed="28.33" length="1000.00" shape="3700.00,1098.40 4600.00,1098.40"/>
+        <lane id="D1_1" index="1" speed="28.33" length="1000.00" shape="3700.00,1101.60 4600.00,1101.60"/>
     </edge>
     <edge id="E0" from="J0" to="N0" priority="-1" spreadType="center" length="750.00">
-        <lane id="E0_0" index="0" speed="13.89" length="750.00" shape="-2065.99,1094.95 -1300.14,1098.40"/>
-        <lane id="E0_1" index="1" speed="13.89" length="750.00" shape="-2066.01,1098.15 -1300.16,1101.60"/>
+        <lane id="E0_0" index="0" speed="28.33" length="750.00" shape="-2065.99,1094.95 -1300.14,1098.40"/>
+        <lane id="E0_1" index="1" speed="28.33" length="750.00" shape="-2066.01,1098.15 -1300.16,1101.60"/>
     </edge>
     <edge id="L1a" from="N1" to="N1a" priority="-1" spreadType="center">
-        <lane id="L1a_0" index="0" speed="102.00" length="1000.00" shape="-300.00,1098.40 700.00,1098.40"/>
-        <lane id="L1a_1" index="1" speed="102.00" length="1000.00" shape="-300.00,1101.60 700.00,1101.60"/>
+        <lane id="L1a_0" index="0" speed="28.33" length="1000.00" shape="-300.00,1098.40 700.00,1098.40"/>
+        <lane id="L1a_1" index="1" speed="28.33" length="1000.00" shape="-300.00,1101.60 700.00,1101.60"/>
     </edge>
     <edge id="L1b" from="N1a" to="N1b" priority="-1" spreadType="center" length="1000.00">
-        <lane id="L1b_0" index="0" speed="102.00" length="1000.00" shape="700.00,1098.40 1700.00,1098.40"/>
-        <lane id="L1b_1" index="1" speed="102.00" length="1000.00" shape="700.00,1101.60 1700.00,1101.60"/>
+        <lane id="L1b_0" index="0" speed="28.33" length="1000.00" shape="700.00,1098.40 1700.00,1098.40"/>
+        <lane id="L1b_1" index="1" speed="28.33" length="1000.00" shape="700.00,1101.60 1700.00,1101.60"/>
     </edge>
     <edge id="L1c" from="N1b" to="N2" priority="-1" spreadType="center" length="1000.00">
-        <lane id="L1c_0" index="0" speed="102.00" length="1000.00" shape="1700.00,1098.40 2695.81,1098.40"/>
-        <lane id="L1c_1" index="1" speed="102.00" length="1000.00" shape="1700.00,1101.60 2695.81,1101.60"/>
+        <lane id="L1c_0" index="0" speed="28.33" length="1000.00" shape="1700.00,1098.40 2695.81,1098.40"/>
+        <lane id="L1c_1" index="1" speed="28.33" length="1000.00" shape="1700.00,1101.60 2695.81,1101.60"/>
     </edge>
     <edge id="L2" from="N2" to="N3" priority="-1" spreadType="center" length="1000.00">
-        <lane id="L2_0" index="0" speed="102.00" length="1000.00" shape="2704.07,1098.40 3700.00,1098.40"/>
-        <lane id="L2_1" index="1" speed="102.00" length="1000.00" shape="2704.07,1101.60 3700.00,1101.60"/>
+        <lane id="L2_0" index="0" speed="28.33" length="1000.00" shape="2704.07,1098.40 3700.00,1098.40"/>
+        <lane id="L2_1" index="1" speed="28.33" length="1000.00" shape="2704.07,1101.60 3700.00,1101.60"/>
     </edge>
     <edge id="O1" from="N0" to="N1" priority="-1" spreadType="center" length="1000.00">
-        <lane id="O1_0" index="0" speed="102.00" length="1000.00" shape="-1299.85,1098.40 -300.00,1098.40"/>
-        <lane id="O1_1" index="1" speed="102.00" length="1000.00" shape="-1299.85,1101.60 -300.00,1101.60"/>
+        <lane id="O1_0" index="0" speed="28.33" length="1000.00" shape="-1299.85,1098.40 -300.00,1098.40"/>
+        <lane id="O1_1" index="1" speed="28.33" length="1000.00" shape="-1299.85,1101.60 -300.00,1101.60"/>
     </edge>
     <edge id="O2" from="N00" to="N2" priority="-1" length="750.00">
-        <lane id="O2_0" index="0" speed="102.00" length="750.00" shape="2587.25,909.32 2698.28,1094.04"/>
+        <lane id="O2_0" index="0" speed="28.33" length="750.00" shape="2587.25,909.32 2698.28,1094.04"/>
     </edge>
 
     <tlLogic id="N2" type="static" programID="0" offset="0">
@@ -109,7 +109,7 @@
         <phase duration="18" state="ryy"/>
     </tlLogic>
 
-    <junction id="J0" type="dead_end" x="-2066.00" y="1096.55" incLanes="" intLanes="" shape="-2066.02,1099.75 -2065.99,1093.35"/>
+    <junction id="J0" type="dead_end" x="-2066.00" y="1096.55" incLanes="" intLanes="" shape="-2066.01,1099.75 -2065.99,1093.35"/>
     <junction id="J8" type="dead_end" x="2300.25" y="397.82" incLanes="" intLanes="" shape="2300.25,397.82"/>
     <junction id="N0" type="priority" x="-1300.00" y="1100.00" incLanes="E0_0 E0_1" intLanes=":N0_0_0 :N0_0_1" shape="-1299.85,1103.20 -1299.85,1096.80 -1300.14,1096.80 -1300.16,1103.20">
         <request index="0" response="00" foes="00" cont="0"/>
