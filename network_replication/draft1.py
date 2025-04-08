@@ -34,20 +34,11 @@ from sym_metanet import (
 
 # --------------------------
 # defining demands for metanet model (the same as for SUMO model)
-def create_demands(time: np.ndarray) -> np.ndarray: # input should be a NumPy array, as well as the output
-    return np.stack( # outputs from the two interpolations will be combines into a single NumPy array
-        (
-            np.interp(time, (2.0, 2.25), (3500, 1000)),
-            np.interp(time, (0.0, 0.15, 0.35, 0.5), (500, 1500, 1500, 500)),
-        )
-    )
+
 
 # --------------------------
 # parameters for metanet model
-T = 10 / 3600
-Tfin = 2.5
-time = np.arange(0, Tfin, T)
-L = 1
+
 lanes = 2
 C = (4000, 2000)
 tau = 18 / 3600
@@ -82,24 +73,8 @@ net = (
 # --------------------------
 # making casadi function out of the network
 engines.use("casadi", sym_type="SX") # using casadi as the backend engine for symbolic computation
-net.is_valid(raises=True) # checking whether metanet model has been properly set up and configured
-net.step( # incorporating the defined parameters and initial conditions to generate casadi function
-    T=T,
-    tau=tau,
-    eta=eta,
-    kappa=kappa,
-    delta=delta,
-    init_conditions={O1: {"v_ctrl": v_free * 2}}, # sets the initial condition for a specific component
-)
 
 # --------------------------
-F: cs.Function = metanet.engine.to_function( # casadi is used for optimization, simulation, analysis
-    net=net, # passes already defined metanet network
-    more_out=True, # the generated function should return additional outputs
-    compact=2,
-    T=T, # specifies time duration, 2.5 hours in our case
-)
-# F: (x[14], u[3], d[2]) -> (x+[14], q[8])
 
 # --------------------------
 # creating demands for metanet model
@@ -179,6 +154,20 @@ onramp_edges = ["O2"]
 queue_edge_main = "E0" # new edge added in netedit to measure queue length (find details in network file)
 default_speed = 28.33 # m/s --> 102 km/h
 
+# Initializing data containers for logging aggregated metric for the mainline and the on-ramp
+time_steps = []
+traffic_data = {
+    "mainline": {
+        "flow": [],
+        "speed": [],
+        "density": []
+    },
+    "onramp": {
+        "flow": [],
+        "speed": [],
+        "density": []
+    }
+}
 # --------------------------
 # this function filters the list of all lane IDs and returns those that
 # start with the given edge_id
@@ -266,14 +255,25 @@ def get_edge_queues(mainlane_q, onramp_edge):
 
 # --------------------------
 
+
+
 v_ctrl_last = v[: L1.N][L1.vsl] # setting initial "last" variable speed control input
 r_last = cs.DM.ones(r.size1(), 1) # initializes the previous ramp metering control values
 sol_prev = None # prepares a variable to store the previous solution from the MPC colver
+# TODO: remove, save results differently (see above)
 RHO, V, W, Q, Q_o, V_CTRL, R = [], [], [], [], [], [], [] # initializes empty lists to record simulation outputs over time
+
+# TODO: Start sumo simulation
+
+
+
+
+
 
 # the actual simulation loop of metanet model
 for k in range(demands.shape[0]): # iterates over each simulation time step, where the total number of steps is determined by the number of rows in the demands array
     # get the demand forecast - pad if at the end of the simulation
+    # TODO: if statement - if sumo is still running, keep going, if not, break the loop
     d_hat = demands[k : k + Np * M, :] # extracts a forecast of future demand over the predicted horizon
     if d_hat.shape[0] < Np * M: # ensures that demand forecast has the required length
         d_hat = np.pad(d_hat, ((0, Np * M - d_hat.shape[0]), (0, 0)), "edge")
