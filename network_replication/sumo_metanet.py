@@ -318,6 +318,8 @@ for k in range(demands.shape[0]): # iterates over each simulation time step, whe
         d_hat = demands[k: k + Np * M, :]
         if d_hat.shape[0] < Np * M:
             d_hat = np.pad(d_hat, ((0, Np * M - d_hat.shape[0]), (0, 0)), "edge")
+        # Transpose d_hat as the mpc.solve() function expects this format
+        d_hat = d_hat.T
 
         # solving MPC problem every M steps
         if k % M == 0:
@@ -347,10 +349,10 @@ for k in range(demands.shape[0]): # iterates over each simulation time step, whe
             q_o_np = np.array(q_o.full()).flatten()
 
 
-        # applying control actions in SUMO via helper functions
-        set_vsl("L1a", v_ctrl_last)
-        set_vsl("L1b", v_ctrl_last)
-        update_ramp_signal_control_logic(r_last, 60, traffic_light)
+            # applying control actions in SUMO via helper functions
+            set_vsl("L1a", v_ctrl_last)
+            set_vsl("L1b", v_ctrl_last)
+            update_ramp_signal_control_logic(r_last, 60, traffic_light)
 
         # appending the current states, outputs, and control actions to the respective lists so they can be used for analysis
         mainline_density_log.append(mainline_density)
@@ -358,7 +360,7 @@ for k in range(demands.shape[0]): # iterates over each simulation time step, whe
         queue_log.append(queues)
         vsl_log.append(v_ctrl_last)
         ramp_log.append(r_last)
-        q_log.append(q_np)
+        q_log.append(q_np) # TODO: Might get issues if q_np is not initialized yet (due to M steps not occuring yet)
         q_o_log.append(q_o_np)
 
         if k % 100 == 0:
@@ -380,21 +382,3 @@ tts = T * sum(
     for mainline_density, queues in zip(mainline_density_log, queue_log)
 )
 print(f"TTS = {tts:.3f} veh.h")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
