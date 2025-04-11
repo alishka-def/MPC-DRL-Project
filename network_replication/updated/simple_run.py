@@ -8,13 +8,24 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 
-os.environ['SUMO_HOME'] = 'C:/Users/selbaklish/Desktop/SUMO/sumo-1.19.0/'
-sys.path.append('C:/Users/selbaklish/Desktop/SUMO/sumo-1.19.0/tools')
-sys.path.append('C:/Users/selbaklish/Desktop/SUMO/sumo-1.19.0/tools/libsumo')
+# Setting up SUMO environment
+if 'SUMO_HOME' in os.environ:
+    tools = os.path.join(os.environ['SUMO_HOME'], 'tools')
+    #libsumo = os.path.join(os.environ['SUMO_HOME'], 'libsumo')
+    sys.path.append(tools)
+    #sys.path.append(libsumo)
 
-sumoBinary = "C:/Users/selbaklish/Desktop/SUMO/sumo-1.19.0/bin/sumo-gui"
-sumoCmd = [sumoBinary, "-c", "./network_example.sumocfg"] # "--seed", "12312"
-traffic_light = "N2"
+else:
+    sys.exit("please declare environment variable 'SUMO_HOME'")
+
+# Defining SUMO configurations
+Sumo_config = [
+    'sumo-gui',
+    '-c', 'network_example.sumocfg',
+    '--lateral-resolution', '0.1'
+]
+
+traffic_light = "J1"
 
 ##################################################################################
 # FUNCTIONS
@@ -60,7 +71,7 @@ def update_ramp_signal_control_logic(metering_rate, cycle_duration, ramp):
 # Start Simulation
 ##################################################################################
 #"""
-traci.start(sumoCmd)
+traci.start(Sumo_config)
 update_ramp_signal_control_logic(metering_rate=1.0, cycle_duration=60, ramp=traffic_light)
 step = 0
 while step <= 9000:

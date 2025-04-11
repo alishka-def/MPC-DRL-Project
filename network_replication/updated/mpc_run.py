@@ -15,19 +15,28 @@ from sym_metanet import (
     Destination, Link, LinkWithVsl, MainstreamOrigin, MeteredOnRamp, Network, Node, engines,
 )
 
+# Setting up SUMO environment
+if 'SUMO_HOME' in os.environ:
+    tools = os.path.join(os.environ['SUMO_HOME'], 'tools')
+    #libsumo = os.path.join(os.environ['SUMO_HOME'], 'libsumo')
+    sys.path.append(tools)
+    #sys.path.append(libsumo)
 
-os.environ['SUMO_HOME'] = 'C:/Users/selbaklish/Desktop/SUMO/sumo-1.19.0/'
-sys.path.append('C:/Users/selbaklish/Desktop/SUMO/sumo-1.19.0/tools')
-sys.path.append('C:/Users/selbaklish/Desktop/SUMO/sumo-1.19.0/tools/libsumo')
+else:
+    sys.exit("please declare environment variable 'SUMO_HOME'")
 
-sumoBinary = "C:/Users/selbaklish/Desktop/SUMO/sumo-1.19.0/bin/sumo"
-sumoCmd = [sumoBinary, "-c", "./network_example.sumocfg"] # "--seed", "12312"
+# Defining SUMO configurations
+Sumo_config = [
+    'sumo-gui',
+    '-c', 'network_example.sumocfg',
+    '--lateral-resolution', '0.1'
+]
 
 # Defining edge IDs
 mainline_edges = ["O1", "L1a", "L1b", "L1c", "L2", "D1"]
 onramp_edges = ["O2"]
 queue_edge_main = "E0"
-traffic_light = "N2"
+traffic_light = "J1"
 
 # Defining edge lengths
 edge_lengths = { # in m
@@ -38,10 +47,10 @@ edge_lengths = { # in m
     "L1c": 1000,
     "L2": 1000,
     "D1": 1000,
-    "O2": 750
+    "O2": 700
 }
 
-edge_lanes = { # in m
+edge_lanes = {
     "E0": 2,
     "O1": 1,
     "L1a": 2,
@@ -105,10 +114,10 @@ def get_edge_speed(edge_ids):
         veh_count = traci.edge.getLastStepVehicleNumber(edge)
         speed_mps = traci.edge.getLastStepMeanSpeed(edge) # retrieving the average speed (m/s) for the edge from SUMO
         if veh_count > 0:
-            speed_kms = speed_mps * 3.6
+            speed_kmh = speed_mps * 3.6
         else:
-            speed_kms = FREE_FLOW_SPEED
-        speeds.append(speed_kms) # converting speed to km/h
+            speed_kmh = FREE_FLOW_SPEED
+        speeds.append(speed_kmh) # converting speed to km/h
     return np.array(speeds) # converting list to NumPy array e.g. [a,b,c,d,e,f]
 
 
@@ -156,7 +165,7 @@ def update_ramp_signal_control_logic(metering_rate, cycle_duration, ramp):
     # iterating over the phases in the program logic
     for ph_id in range(0, len(program_logic.phases)):
         print(program_logic.phases[ph_id])
-        sys.exit(1)
+        #sys.exit(1)
         if ph_id == 0: # green phase
             # Set phase 0 to have exactly green_time for the on-ramp
             program_logic.phases[ph_id].minDur = green_time
@@ -288,7 +297,9 @@ r_last = cs.DM.ones(r.size1(), 1)
 sol_prev = None
 
 # Start Traci
-traci.start(sumoCmd)
+traci.start(Sumo_config)
+# Starting simulation with ramp metering rate to be 1 (60 seconds of green light)
+update_ramp_signal_control_logic(metering_rate=1.0, cycle_duration=60, ramp=traffic_light)
 for k_sumo in range(len(times)):
     # getting current simulation time
     sim_time = traci.simulation.getTime()
@@ -306,18 +317,14 @@ for k_sumo in range(len(times)):
     if d_hat.shape[0] < Np * M:
         d_hat = np.pad(d_hat, ((0, Np * M - d_hat.shape[0]), (0, 0)), "edge")
 
-    if k_sumo > 0 and sim_time % control_step == 0:
-        if k_sumo == 0:
-            mainline_density_perLane = results_sumo['Density_perLane'][:, k_sumo]
-            mainline_speed = results_sumo['Speed'][:, k_sumo]
-            queues = results_sumo['Queue_Lengths'][:, k_sumo]
-        else:
-            # Here, we handle the effect of the different time steps used for SUMO and METANET by averaging the last 10 measurements (i.e. spanning 10 seconds)
-            mainline_density_perLane = np.mean(results_sumo['Density_perLane'][:, k_sumo-int(metanet_step//sumo_step)+1:k_sumo+1], axis=1)
-            mainline_density = np.mean(results_sumo['Density'][:, k_sumo-int(metanet_step//sumo_step)+1:k_sumo+1], axis=1)
-            mainline_flow = np.mean(results_sumo['Flow'][:, k_sumo-int(metanet_step//sumo_step)+1:k_sumo+1], axis=1)
-            mainline_speed = mainline_flow / mainline_density
-            queues = np.mean(results_sumo['Queue_Lengths'][:, k_sumo-int(metanet_step//sumo_step)+1:k_sumo+1], axis=1)
+    # at the beginning of the simulation I have added a warm-up period of 10 minutes (600 seconds) so that network has some logical density and speed measurements.
+    if k_sumo > 600 and sim_time % control_step == 0:
+        # Here, we handle the effect of the different time steps used for SUMO and METANET by averaging the last 10 measurements (i.e. spanning 10 seconds)
+        mainline_density_perLane = np.mean(results_sumo['Density_perLane'][:, k_sumo-int(metanet_step//sumo_step)+1:k_sumo+1], axis=1)
+        mainline_density = np.mean(results_sumo['Density'][:, k_sumo-int(metanet_step//sumo_step)+1:k_sumo+1], axis=1)
+        mainline_flow = np.mean(results_sumo['Flow'][:, k_sumo-int(metanet_step//sumo_step)+1:k_sumo+1], axis=1)
+        mainline_speed = np.minimum(FREE_FLOW_SPEED, mainline_flow / mainline_density + 1e-06) # avoid division by zero
+        queues = np.mean(results_sumo['Queue_Lengths'][:, k_sumo-int(metanet_step//sumo_step)+1:k_sumo+1], axis=1)
         
         sol = mpc.solve(
             pars={"rho_0": mainline_density_perLane, "v_0": mainline_speed, "w_0": queues, "d": d_hat.T, "v_ctrl_last": v_ctrl_last, "r_last": r_last},
@@ -336,6 +343,8 @@ for k_sumo in range(len(times)):
         # applying control actions in SUMO via helper functions
         set_vsl("L1a", v_ctrl_last[0]*3.6) # convert VSL from km/h to m/s
         set_vsl("L1b", v_ctrl_last[1]*3.6)
+        print("v_ctrl_last: ", v_ctrl_last)
+        print("r_last: ", r_last)
         update_ramp_signal_control_logic(r_last.__float__(), control_step, traffic_light)
 
     results_sumo['Ramp_Metering_Rate'][:, k_sumo] = np.asarray(r_last).flatten()
@@ -344,6 +353,9 @@ for k_sumo in range(len(times)):
 
 traci.close()
 
+# Total Time Spent metrics
+tts = T * np.sum(np.sum(results_sumo['Density'], axis=0) * L * lanes + np.sum(results_sumo['Queue_Lengths'], axis=0))
+print(f"TTS = {tts:.3f} veh.h")
 
 ##################################################################################
 # Plotting
@@ -355,7 +367,9 @@ plt.figure()
 plt.plot(results_sumo['Time'], results_sumo['VSL'].T)
 
 plt.show()
-sys.exit(1)
+# save plot to ./plots
+plt.savefig('./plots/ramp_metering_rate.png')
+#sys.exit(1)
 
 df = pdx.read_xml('./Logs/log_edges.xml', ['meandata'])
 df = pdx.flatten(df)
@@ -390,3 +404,5 @@ sns.lineplot(data=df, x='begin', y='flow', hue='edge_id')
 plt.figure()
 sns.lineplot(data=df, x='begin', y='speed', hue='edge_id')
 plt.show()
+# save plot to ./plots
+plt.savefig('./plots/speed.png')
