@@ -310,6 +310,7 @@ for k_sumo in range(len(times)):
     results_sumo['Density'][:, k_sumo], results_sumo['Density_perLane'][:, k_sumo] = get_edge_density(mainline_edges)
     results_sumo['Flow'][:, k_sumo] = results_sumo['Density'][:, k_sumo] * results_sumo['Speed'][:, k_sumo]
     results_sumo['Queue_Lengths'][:, k_sumo] = get_edge_queues(queue_edge_main, onramp_edges[0])
+
     
     # getting the current demand values
     k = int(sim_time // metanet_step)
@@ -378,7 +379,7 @@ df = df.pipe(pdx.flatten)
 df = df.pipe(pdx.flatten)
 df = df.rename(
     columns={
-        'interval|@begin': 'begin', 'interval|@end': 'end', 'interval|edge|@sampledSeconds': 'sampledSeconds', 
+        'interval|@begin': 'begin', 'interval|@end': 'end', 'interval|edge|@sampledSeconds': 'sampledSeconds',
         'interval|edge|@density': 'density', 'interval|edge|@laneDensity': 'laneDensity', 'interval|edge|@speed': 'speed', 'interval|edge|@occupancy': 'occupancy',
         'interval|edge|@id': 'edge_id'
     }
@@ -405,4 +406,4 @@ plt.figure()
 sns.lineplot(data=df, x='begin', y='speed', hue='edge_id')
 plt.show()
 # save plot to ./plots
-plt.savefig('./plots/speed.png')
+#plt.savefig('./plots/speed.png')
