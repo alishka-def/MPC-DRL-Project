@@ -216,7 +216,7 @@ class MetanetEnv(gym.Env):
             "rho_0": cs.DM(self.rho_raw),
             "v_0": cs.DM(self.v_raw),
             "w_0": cs.DM(self.w_raw),
-            "d": cs.DM(self.demands_raw[: self.drl_ratio].T),
+            "d": cs.DM(self.demands_raw[: self.drl_ratio].T), # TODO: change self.drl_ratio to self._Np*self._M_mpc
             "r_last": cs.DM(self.u_prev[: self.n_ramp].reshape(-1, 1)),
             "v_ctrl_last": cs.DM(self.u_prev[self.n_ramp:].reshape(-1, 1)),
         }
@@ -240,7 +240,7 @@ class MetanetEnv(gym.Env):
     """
     Step function -> T=10 sDRL = 6 steps (6*10=60s). MPC covers 30 steps
     (30*10=300s).
-    1. Denormalize current MPC baseline u_s
+    1. Denormalize current MPC baseline u_s # TODO: Is u_s really normalized?? I think in this implementation it is un-normalized.
     2. Combine with DRL tweak. saturate to [0≤r≤1, v_min≤vsl≤v_free]
     3. Roll out self.drl_steps through the dynamics function
     4. Accumulate reward
@@ -295,7 +295,7 @@ class MetanetEnv(gym.Env):
             self.v_raw = arr[self.n_seg: 2 * self.n_seg]
             self.w_raw = arr[2 * self.n_seg: 2 * self.n_seg + self.n_orig]
             # computing TTS+queue penalty
-            J  = (self.rho_raw * self.L * self.lanes).sum() + self.w_raw.sum()
+            J  = (self.rho_raw * self.L * self.lanes).sum() + self.w_raw.sum() # TODO: missing term in objective function see page 9 in paper (eq. for J)
             Ps = max(0.0, np.max(self.w_raw) - self.max_queue[1])
             total_reward -= (J + self.w_p * Ps)
 
@@ -308,7 +308,7 @@ class MetanetEnv(gym.Env):
         if self.current_step % (30 // self.drl_ratio) == 0:
             start = (self.current_step - 1) * self.drl_ratio
             end = start + self.drl_ratio
-            d_slice = (self.demands_raw[start:end].T
+            d_slice = (self.demands_raw[start:end].T      # TODO: check dimensions of slice and might need padding (like previous code) to ensure correct dimensions
                        if end <= len(self.demands_raw)
                         else self.demands_raw[start:].T)
 
@@ -343,18 +343,4 @@ class MetanetEnv(gym.Env):
             # once we hit 150 steps, the simulation will end)
             truncated = (self.current_step >= self.horizon_steps)
             return obs, float(total_reward), done, truncated, {}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        
