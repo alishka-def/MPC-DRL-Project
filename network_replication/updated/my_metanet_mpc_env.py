@@ -17,6 +17,7 @@ from gymnasium import spaces
 ########################################################################
 # Methods
 ########################################################################
+# Generate time-varying demands for two origins (mainline and on-ramp)
 def create_demands(time: np.ndarray) -> np.ndarray:
     return np.stack(
         (
@@ -26,30 +27,37 @@ def create_demands(time: np.ndarray) -> np.ndarray:
     )
 
 ########################################################################
-# Class: MetanetMPCEnv
+# Class: MetanetMPCEnv - custom gymnasium environment for traffic control
 ########################################################################
 class MetanetMPCEnv(gym.Env):
     def __init__(self, M_drl: int = 6, w_u: float = 0.4, w_p: float = 10.0):
         super(MetanetMPCEnv, self).__init__()
-        self._init_network()
-        self._init_mpc()
+        self._init_network() # build METANET network model
+        self._init_mpc() # set up MPC controller
         self.T_sim = 2.5 # simulation time of 2.5 hours
-        self.M_drl = M_drl
-        self.w_u = w_u
-        self.w_p = w_p
+        self.M_drl = M_drl # number of DRL steps (6*10=60s)
+        self.w_u = w_u # weight for the control action
+        self.w_p = w_p # penalty weight for queue violations
+
+        # variance for low-level noise [mainline, on-ramp]
+        self.noise_var = np.array([75.0, 30.0], dtype=np.float32)
+        # standard deviation for low-level noise [mainline, on-ramp]
+        self.noise_std = np.sqrt(self.noise_var)
+
         # normalization constants
         self._max_queue = np.array([200.0, 100.0], dtype = np.float32)
         self._max_demands = np.array([3500.0, 1500.0], dtype = np.float32)
+        # lower and upper bounds for the control action
         self._u_lb = np.array([0] + [self._vsl_min for _ in range(self._n_vsl)])
         self._u_ub = np.array([1] + [self._v_free for _ in range(self._n_vsl)])
         # Action space (equation 8)
         full_range = np.concatenate([
             np.ones(self._n_ramp),  # ramp delta = 1
-            (self._v_free - self._vsl_min) * np.ones(self._n_vsl)  # VSL delta
+            (self._v_free - self._vsl_min) * np.ones(self._n_vsl)  # range for VSL
         ])
         self.action_space = spaces.Box(
-            low=-self.w_u*full_range.astype(np.float32),
-            high=+self.w_u*full_range.astype(np.float32),
+            low=-self.w_u*full_range.astype(np.float32), # minimum action values
+            high=+self.w_u*full_range.astype(np.float32), # maximum action values
             dtype=np.float32
         )
         # Observation space (equation 7)
@@ -72,17 +80,17 @@ class MetanetMPCEnv(gym.Env):
         # METANET parameters
         self._T = 10.0 / 3600 # temporal discretization (hours)
         self._L = 1.0 # spatial discretization (km)
-        self._num_lanes = 2
-        self._tau = 18.0 / 3600
-        self._kappa = 40.0
-        self._eta = 60.0
-        self._delta = 0.0122
-        self._a = 1.867
-        self._rho_max = 180.0
-        self._rho_crit = 33.5
-        self._capacity_lane = 2000.0
-        self._v_free = 102.0
-        self._vsl_min = 20.0
+        self._num_lanes = 2 # number of lanes
+        self._tau = 18.0 / 3600 # reaction time (hours)
+        self._kappa = 40.0 # smoothing parameter
+        self._eta = 60.0 # prediction horizon parameter
+        self._delta = 0.0122 # congestion effect parameter
+        self._a = 1.867 # acceleration exponent
+        self._rho_max = 180.0 # jam density (veh/km/lane)
+        self._rho_crit = 33.5 # critical density (veh/km/lane)
+        self._capacity_lane = 2000.0 # capacity per lane (veh/h/lane)
+        self._v_free = 102.0 # free flow speed (km/h)
+        self._vsl_min = 20.0 # minimum speed limit (km/h)
 
         # METANET network
         N1 = metanet.Node(name="N1")
@@ -103,29 +111,37 @@ class MetanetMPCEnv(gym.Env):
             .add_path(origin=O1, path=(N1, L1, N2, L2, N3), destination=D1)
             .add_origin(O2, N2)
         )
+        # configurate engine and validate
         metanet.engines.use("casadi", sym_type="SX")
         self._net.is_valid(raises=True)
+        # initialize states and compile dynamics function
         self._net.step(T=self._T, tau=self._tau, eta=self._eta, kappa=self._kappa, delta=self._delta, init_conditions={O1: {"v_ctrl": self._v_free*2}})
         self._dynamics = metanet.engine.to_function(
             net=self._net, more_out=True, compact=2, T=self._T
         )
+        # number of segments and origins
         self._n_seg, self._n_orig = sum(link.N for _, _, link in self._net.links), len(self._net.origins)
+        # number of ramps and VSL control points
         self._n_ramp, self._n_vsl = 1, 2
 
     def _init_mpc(self):
         # MPC controller
         self._Np, self._Nc, self._M_mpc = 2, 2, 30
+        # instantiate MPC wrapper
         self._mpc = Mpc[cs.SX](
             nlp=Nlp[cs.SX](sym_type="SX"),
             prediction_horizon=self._Np*self._M_mpc,
             control_horizon=self._Nc*self._M_mpc,
             input_spacing=self._M_mpc
         )
+        # define states: densities, speeds, queue lengths
         rho, _ = self._mpc.state("rho", self._n_seg, lb=0)
         v, _ = self._mpc.state("v", self._n_seg, lb=0)
         w, _ = self._mpc.state("w", self._n_orig, lb=0, ub=[[200], [100]]) # O2 queue is constrained
+        # define actions: VSL controls and ramp metering rate
         v_ctrl, _ = self._mpc.action("v_ctrl", self._n_vsl, lb=self._vsl_min, ub=self._v_free)
         r, _ = self._mpc.action("r", lb=0, ub=1)
+        # define disturbance (demands)
         d = self._mpc.disturbance("d", self._n_orig)
         # set dynamics constraints
         self._mpc.set_dynamics(self._dynamics)
@@ -170,9 +186,15 @@ class MetanetMPCEnv(gym.Env):
         super().reset(seed=seed)
         # generating raw demands and set horizon
         self.time = np.arange(0, self.T_sim+self._T, self._T)
-        self.demands_raw = create_demands(self.time).T.astype(np.float32)
+        # forecast demands (without noise) for mpc
+        self.demands_forecast = create_demands(self.time).T.astype(np.float32)
+        # actual demands (with noise) = nominal (forecast) + noise
+        noise = np.random.normal(loc=0.0, scale=self.noise_std[np.newaxis, :], size=self.demands_forecast.shape).astype(np.float32)
+        # clipping the results, so that I wouldn't get a negative demand values
+        self.demands_actual = np.clip(self.demands_forecast + noise, a_min=0.0, a_max=None)
+
         self.current_timestep = 0
-        # Initializing conditions (same as in metanet)
+        # Initializing conditions (same as in METANET)
         self.rho_raw = np.array([22, 22, 22.5, 24, 30, 32], dtype=np.float32)
         self.v_raw = np.array([80, 80, 78, 72.5, 66, 62], dtype=np.float32)
         self.w_raw = np.zeros(self._n_orig, dtype=np.float32)
@@ -181,20 +203,33 @@ class MetanetMPCEnv(gym.Env):
             np.ones(self._n_ramp, dtype=np.float32),
             np.full(self._n_vsl, self._v_free, dtype=np.float32),
         ])
-        self._sol_mpc_prev = None
+        self._sol_mpc_prev = None # clear previous MPC solution
+
+        # WARM-UP: 10 minutes without mpc or drl
+        u_reordered = cs.vertcat(self.u_prev_raw[self._n_ramp:], self.u_prev_raw[:self._n_ramp])
+        warm_up_time = 0 # seconds
+        while warm_up_time <= 600: # warm-start for 600 seconds
+            _, _ = self._dynamics(
+                cs.vertcat(self.rho_raw, self.v_raw, self.w_raw),
+                u_reordered,
+                self.demands_actual[self.current_timestep, :]
+            )
+            warm_up_time += 1
+
+
         sol = self._mpc.solve(
             pars={"rho_0": self.rho_raw, "v_0": self.v_raw, "w_0": self.w_raw, 
-                  "d": self.demands_raw[:self._Np*self._M_mpc, :].T, 
+                  "d": self.demands_forecast[:self._Np*self._M_mpc, :].T,
                   "r_last": self.u_prev_raw[: self._n_ramp].reshape(-1, 1), 
                   "v_ctrl_last": self.u_prev_raw[self._n_ramp:].reshape(-1, 1)},
             vals0=self._sol_mpc_prev
         )
-        self._sol_mpc_prev = sol.vals
-        v_ctrl_last = sol.vals["v_ctrl"][:, 0]
-        r_last = sol.vals["r"][0]
+        self._sol_mpc_prev = sol.vals # store for next solve
+        v_ctrl_last = sol.vals["v_ctrl"][:, 0] # extract VSL solution
+        r_last = sol.vals["r"][0] # extract VSL solution
         self.u_mpc_raw = np.concatenate([r_last, v_ctrl_last]).astype(np.float32).flatten()
         # Building and returning normalized observations
-        self.state_norm = self.normalize_observations(self.rho_raw, self.v_raw, self.w_raw, self.u_mpc_raw, self.u_prev_raw, self.demands_raw[0])
+        self.state_norm = self.normalize_observations(self.rho_raw, self.v_raw, self.w_raw, self.u_mpc_raw, self.u_prev_raw, self.demands_actual[0])
         # Creating results dict for plotting
         self.sim_results = {
             "Density": [], "Flow": [], "Speed": [], "Queue_Length": [], "Origin_Flow": [], 
@@ -211,18 +246,21 @@ class MetanetMPCEnv(gym.Env):
             3. Accumulate reward
             4. Return normalized observation, reward, done, truncated, info
         """
+        # combine baseline MPC control with DRL action and saturate
         u_combined = self.saturate(self.u_mpc_raw + action)
+        # reorder to match dynamics input
         u_reordered = cs.vertcat(u_combined[self._n_ramp:], u_combined[:self._n_ramp])
         reward = 0.0
         for _ in range(self.M_drl):
             x_next, q_all = self._dynamics(
                 cs.vertcat(self.rho_raw, self.v_raw, self.w_raw),
                 u_reordered,
-                self.demands_raw[self.current_timestep, :]
+                self.demands_actual[self.current_timestep, :]
             )
             # step dynamics
             self.rho_raw, self.v_raw, self.w_raw = cs.vertsplit(x_next, (0, self._n_seg, 2*self._n_seg, 2*self._n_seg+self._n_orig))
             self.rho_raw, self.v_raw, self.w_raw = np.array(self.rho_raw).flatten(), np.array(self.v_raw).flatten(), np.array(self.w_raw).flatten()
+
             q, q_o = cs.vertsplit(q_all, (0, self._n_seg, self._n_seg+self._n_orig))
             self.sim_results["Density"].append(self.rho_raw)
             self.sim_results["Speed"].append(self.v_raw)
@@ -237,15 +275,21 @@ class MetanetMPCEnv(gym.Env):
             mpc_cost = (self.rho_raw * self._L * self._num_lanes).sum() + self.w_raw.sum()
             mpc_cost += 0.4*np.sum(np.square((self.u_prev_raw - u_combined) / self._u_ub))
             Ps = np.maximum(0.0, self.w_raw - self._max_queue)
-            reward -= (mpc_cost + self.w_p * Ps)
+            queue_penalty = self.w_p * Ps.sum()
+
+            # subtract both as a scalar
+            reward -= (mpc_cost + queue_penalty)
             self.current_timestep += 1
-        
+
+        # update previous control action for next step
         self.u_prev_raw = u_combined.copy()
-        # once we hit 150 steps, the simulation will end)
+        # once we hit 150 steps, the simulation will end
         truncated = (self.current_timestep >= int(self.T_sim//self._T))
+        # recalculate MPC output every 300 seconds (every 30 steps)
         if not truncated and self.current_timestep % self._M_mpc == 0:
             # get demand forecast
-            d_hat = self.demands_raw[self.current_timestep:self.current_timestep+self._Np*self._M_mpc, :]
+            d_hat = self.demands_forecast[self.current_timestep:self.current_timestep+self._Np*self._M_mpc, :]
+            # pad if forecast horizon exceeds remaining time
             if d_hat.shape[0] < self._Np*self._M_mpc:
                 d_hat = np.pad(d_hat, ((0, self._Np*self._M_mpc-d_hat.shape[0]), (0, 0)), "edge")
             sol = self._mpc.solve(
@@ -254,15 +298,18 @@ class MetanetMPCEnv(gym.Env):
                       "v_ctrl_last": self.u_prev_raw[self._n_ramp:].reshape(-1, 1)},
                 vals0=self._sol_mpc_prev,
             )
+            # store new solution
             self._sol_mpc_prev = sol.vals
             v_ctrl_last = sol.vals["v_ctrl"][:, 0]
             r_last = sol.vals["r"][0]
             self.u_mpc_raw = np.concatenate([r_last, v_ctrl_last]).astype(np.float32).flatten()
 
-        self.state_norm = self.normalize_observations(self.rho_raw, self.v_raw, self.w_raw, self.u_mpc_raw, self.u_prev_raw, self.demands_raw[self.current_timestep])
+        self.state_norm = self.normalize_observations(self.rho_raw, self.v_raw, self.w_raw, self.u_mpc_raw, self.u_prev_raw, self.demands_actual[self.current_timestep])
         done = False
+        reward = float(reward) # convert to float
         return self.state_norm, reward, done, truncated, {}
-    
+
+    # saturate control signal to [0,1] for ramp and [v_min, v_free] for VSL
     def saturate(self, control_signal: np.ndarray) -> np.ndarray:
         return np.minimum(np.maximum(control_signal, self._u_lb), self._u_ub)
 
@@ -271,8 +318,8 @@ class MetanetMPCEnv(gym.Env):
 # Main: Trial
 ########################################################################
 if __name__ == "__main__":
-    env = MetanetMPCEnv()
-    env.reset()
+    env = MetanetMPCEnv() # instantiate environment
+    env.reset() # reset to initial state
     Num_Steps = 150
     for _ in range(Num_Steps):
         # Here just a random input to test the environment
@@ -297,6 +344,7 @@ if __name__ == "__main__":
     plt.plot(env.time[:env.current_timestep], env.sim_results["Density"].T)
     plt.xlabel("Time [h]")
     plt.ylabel("Density [veh/km/lane]")
+    plt.savefig("plots/density.png")
 
     plt.figure()
     plt.plot(env.time[:env.current_timestep], env.sim_results["u_MPC"][0, :], label="MPC Baseline")
@@ -304,4 +352,5 @@ if __name__ == "__main__":
     plt.legend()
     plt.xlabel("Time [h]")
     plt.ylabel("Ramp Metering Rate [-]")
+    plt.savefig("plots/ramp_metering_rate.png")
     plt.show()

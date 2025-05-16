@@ -369,7 +369,7 @@ plt.plot(results_sumo['Time'], results_sumo['VSL'].T)
 
 plt.show()
 # save plot to ./plots
-plt.savefig('./plots/ramp_metering_rate.png')
+plt.savefig('./plots/ramp_metering_rate_no_training.png')
 #sys.exit(1)
 
 df = pdx.read_xml('./Logs/log_edges.xml', ['meandata'])

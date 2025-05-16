@@ -76,8 +76,12 @@ class MetanetEnv(gym.Env):
         self.demands_raw = create_demands(self.time).T.astype(np.float32)
         # computing number of drl steps
         T = (self.time[1] - self.time[0]) * 3600.0  # small step in seconds (10 s)
+        self.T_step = 10.0
         self.horizon_steps = int(horizon_hours * 3600.0 / (self.drl_ratio * T))
         self.current_step = 0
+
+        self._Np = 2.0
+        self._M_mpc = 30.0
 
         # Action space (equation 8)
         # delta_U = [1]*n_ramp + (v_free - v_min)*[1]*n_vsl
@@ -216,13 +220,14 @@ class MetanetEnv(gym.Env):
             "rho_0": cs.DM(self.rho_raw),
             "v_0": cs.DM(self.v_raw),
             "w_0": cs.DM(self.w_raw),
-            "d": cs.DM(self.demands_raw[: self.drl_ratio].T), # TODO: change self.drl_ratio to self._Np*self._M_mpc
+            "d": cs.DM(self.demands_raw[:self._Np*self._M_mpc, :].T),
             "r_last": cs.DM(self.u_prev[: self.n_ramp].reshape(-1, 1)),
             "v_ctrl_last": cs.DM(self.u_prev[self.n_ramp:].reshape(-1, 1)),
         }
+
         sol = self.mpc.solve(pars=pars)
-        r_act = np.array(sol.vals["r"].full()).flatten()
-        v_act = np.array(sol.vals["v_ctrl"].full()).flatten()
+        r_act = np.array(sol.vals["r"][:, 0].full()).flatten()
+        v_act = np.array(sol.vals["v_ctrl"][:, 0].full()).flatten()
         self.u_s = np.concatenate([r_act, v_act]).astype(np.float32)
 
         # Building and returning normalized observations
@@ -240,20 +245,15 @@ class MetanetEnv(gym.Env):
     """
     Step function -> T=10 sDRL = 6 steps (6*10=60s). MPC covers 30 steps
     (30*10=300s).
-    1. Denormalize current MPC baseline u_s # TODO: Is u_s really normalized?? I think in this implementation it is un-normalized.
-    2. Combine with DRL tweak. saturate to [0≤r≤1, v_min≤vsl≤v_free]
-    3. Roll out self.drl_steps through the dynamics function
-    4. Accumulate reward
-    5. Return normalized observation, reward, done, truncated, info
+    1. Combine with DRL tweak. saturate to [0≤r≤1, v_min≤vsl≤v_free]
+    2. Roll out self.drl_steps through the dynamics function
+    3. Accumulate reward
+    4. Return normalized observation, reward, done, truncated, info
     """
 
     def step(self,action):
-        # multiplying by [1, v_free] to denormalize the MPC baseline (u_s)
-        denorm = np.concatenate([
-            np.ones(self.n_ramp, dtype=np.float32),
-            np.full(self.n_vsl, self.v_free, dtype=np.float32),
-        ])
-        u_s_phys = self.u_s * denorm
+
+        u_s_phys = self.u_s
 
         # saturation function - equations 2,3
         u_tweak = action.astype(np.float32)
@@ -295,7 +295,7 @@ class MetanetEnv(gym.Env):
             self.v_raw = arr[self.n_seg: 2 * self.n_seg]
             self.w_raw = arr[2 * self.n_seg: 2 * self.n_seg + self.n_orig]
             # computing TTS+queue penalty
-            J  = (self.rho_raw * self.L * self.lanes).sum() + self.w_raw.sum() # TODO: missing term in objective function see page 9 in paper (eq. for J)
+            J  = self.T_step * (self.rho_raw * self.L * self.lanes).sum() + self.w_raw.sum()
             Ps = max(0.0, np.max(self.w_raw) - self.max_queue[1])
             total_reward -= (J + self.w_p * Ps)
 
@@ -308,9 +308,20 @@ class MetanetEnv(gym.Env):
         if self.current_step % (30 // self.drl_ratio) == 0:
             start = (self.current_step - 1) * self.drl_ratio
             end = start + self.drl_ratio
-            d_slice = (self.demands_raw[start:end].T      # TODO: check dimensions of slice and might need padding (like previous code) to ensure correct dimensions
-                       if end <= len(self.demands_raw)
-                        else self.demands_raw[start:].T)
+            # grab the raw time-slice of demands
+            raw_slice = self.demands_raw[start:end]
+            # if it's too short, pad it with last row
+            NpM = self._Np*self._M_mpc
+            if raw_slice.shape[0] < NpM:
+                pad_len = NpM - raw_slice.shape[0]
+                raw_slice = np.pad(
+                    raw_slice,
+                    pad_width=((0, pad_len), (0, 0)),
+                    mode="edge"
+                )
+            #    now raw_slice.shape == (NpM, n_orig)
+            d_slice = raw_slice.T
+
 
             sol = self.mpc.solve({
                 "rho_0": cs.DM(self.rho_raw),
@@ -321,8 +332,8 @@ class MetanetEnv(gym.Env):
                 "v_ctrl_last": cs.DM(self.u_prev[self.n_ramp:].reshape(-1, 1)),
             })
 
-            r_act = np.array(sol.vals["r"].full()).flatten()
-            v_act = np.array(sol.vals["v_ctrl"].full()).flatten()
+            r_act = np.array(sol.vals["r"][:, 0].full()).flatten()
+            v_act = np.array(sol.vals["v_ctrl"][:, 0].full()).flatten()
             # creating a new baseline that the drl will tweak next time
             self.u_s = np.concatenate([r_act, v_act]).astype(np.float32)
 
@@ -340,7 +351,7 @@ class MetanetEnv(gym.Env):
 
             self.state = obs
             done = False
-            # once we hit 150 steps, the simulation will end)
+            # once we hit 150 steps, the simulation will end
             truncated = (self.current_step >= self.horizon_steps)
             return obs, float(total_reward), done, truncated, {}
         
