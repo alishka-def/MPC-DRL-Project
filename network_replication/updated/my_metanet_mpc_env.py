@@ -207,16 +207,26 @@ class MetanetMPCEnv(gym.Env):
 
         # WARM-UP: 10 minutes without mpc or drl
         u_reordered = cs.vertcat(self.u_prev_raw[self._n_ramp:], self.u_prev_raw[:self._n_ramp])
-        warm_up_time = 0 # seconds
-        while warm_up_time <= 600: # warm-start for 600 seconds
-            _, _ = self._dynamics(
+
+        # warm-up period of 10 minutes (600 seconds)
+        warm_up_steps = int(600/ (self._T*3600)) # self._T is in hours, so _T*3600 = 10 s
+        for _ in range(warm_up_steps):
+            x_next, _ = self._dynamics(
                 cs.vertcat(self.rho_raw, self.v_raw, self.w_raw),
                 u_reordered,
                 self.demands_actual[self.current_timestep, :]
             )
-            warm_up_time += 1
+            self.rho_raw, self.v_raw, self.w_raw = cs.vertsplit(x_next, (
+            0, self._n_seg, 2 * self._n_seg, 2 * self._n_seg + self._n_orig))
+            self.rho_raw, self.v_raw, self.w_raw = np.array(self.rho_raw).flatten(), np.array(
+                self.v_raw).flatten(), np.array(self.w_raw).flatten()
 
 
+        # TODO: If no issue remove asserts
+        assert not np.isnan(self.rho_raw).any(), "NaN in rho_raw"
+        assert not np.isnan(self.v_raw).any(), "NaN in v_raw"
+        assert not np.isnan(self.w_raw).any(), "NaN in w_raw"
+        assert not np.isnan(self.demands_forecast).any(), "NaN in demands_forecast"
         sol = self._mpc.solve(
             pars={"rho_0": self.rho_raw, "v_0": self.v_raw, "w_0": self.w_raw, 
                   "d": self.demands_forecast[:self._Np*self._M_mpc, :].T,
@@ -280,10 +290,14 @@ class MetanetMPCEnv(gym.Env):
             # subtract both as a scalar
             reward -= (mpc_cost + queue_penalty)
             self.current_timestep += 1
+            print(f"[ENV] current_timestep = {self.current_timestep}")
 
         # update previous control action for next step
         self.u_prev_raw = u_combined.copy()
-        # once we hit 150 steps, the simulation will end
+        # T_sim = 9000 s (length of the simulation)
+        # _T = 10 s (length of the time step)
+        # T_sim//_T = 9000/10 = 900 steps
+        # Therefore, the simulation is truncated when the current timestep reaches 900
         truncated = (self.current_timestep >= int(self.T_sim//self._T))
         # recalculate MPC output every 300 seconds (every 30 steps)
         if not truncated and self.current_timestep % self._M_mpc == 0:
