@@ -396,7 +396,12 @@ if RUN_MPC_CTRL:
 if RUN_MPC_DRL_CTRL:
     print("**************************** MPC + DRL: RAMP METERING + VSL ****************************")
     # Load trained policy
-    model = DDPG.load("ddpg_low.zip")
+    if DEMAND_NOISE == "MEDIUM":
+        model = DDPG.load("ddpg_medium.zip")
+    elif DEMAND_NOISE == "HIGH":
+        model = DDPG.load("ddpg_high.zip")
+    else:
+        model = DDPG.load("ddpg_low.zip")
 
     L1 = metanet.LinkWithVsl(4, num_lanes, L, rho_max, rho_crit, v_free, a, name="L1",
                             segments_with_vsl={2, 3}, alpha=0.1) # alpha = Non-compliance factor to the indicated speed limit.
