@@ -20,7 +20,7 @@ from sym_metanet import (
 ########################################################################
 # Global: Parameters
 ########################################################################
-RUN_MODE = "MPC_DRL" # options: "NO_CTRL" or "MPC" or "MPC_DRL"
+RUN_MODE = "MPC" # options: "NO_CTRL" or "MPC" or "MPC_DRL"
 
 ##################################################################################
 # Setting up SUMO Environment
@@ -463,6 +463,7 @@ X, Y = np.meshgrid(results_sumo['Time'], (np.arange(len(mainline_edges)) + 1) * 
 fig, axs = plt.subplots(1, 3, figsize=(12, 4))
 sc = axs[0].pcolormesh(X, Y, results_sumo['Speed'], shading='auto', cmap='jet_r')
 plt.colorbar(sc, label='Speed (km/h)', ax=axs[0])
+plt.clim([0, FREE_FLOW_SPEED])
 axs[0].set_xlabel('Time (s)')
 axs[0].set_ylabel('Position (km)')
 
