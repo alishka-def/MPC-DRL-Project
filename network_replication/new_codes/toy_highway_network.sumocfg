@@ -21,4 +21,9 @@
         <additional-files value="edge_logging.add.xml"/>
     </input>
 
+	<output>
+		<tripinfo-output value="Logs/log_trip_info.xml" write-unfinished="true"/>
+		<summary-output value="Logs/log_summary.xml"/>
+	</output>
+
 </sumoConfiguration>
