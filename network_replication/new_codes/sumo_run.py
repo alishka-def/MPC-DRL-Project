@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 
 from csnlp import Nlp
 from csnlp.wrappers import Mpc
+from stable_baselines3 import DDPG
 from sym_metanet import (
     Destination, Link, LinkWithVsl, MainstreamOrigin, MeteredOnRamp, Network, Node, engines,
 )
@@ -19,7 +20,7 @@ from sym_metanet import (
 ########################################################################
 # Global: Parameters
 ########################################################################
-RUN_MODE = "MPC" # options: "NO_CTRL" or "MPC" or "MPC_DRL"
+RUN_MODE = "MPC_DRL" # options: "NO_CTRL" or "MPC" or "MPC_DRL"
 
 ##################################################################################
 # Setting up SUMO Environment
@@ -190,8 +191,8 @@ def create_demands(time: np.ndarray) -> np.ndarray:
     )
 
 
-def create_MPC(mpc_interval):
-    T = 10 / 3600 # hr
+def create_MPC(metanet_interval, mpc_interval):
+    T = metanet_interval # hr
     L = 1 # km
     lanes = 2
     C = (4000, 2000) # veh/h
@@ -274,6 +275,31 @@ def create_MPC(mpc_interval):
 
     return mpc, Np, M, v_ctrl_last, r_last
 
+
+def normalize_observations(rho: np.ndarray, v: np.ndarray, w: np.ndarray, 
+                           u_mpc: np.ndarray, u_prev: np.ndarray, demands: np.ndarray) -> np.ndarray:
+        """
+        Normalize all components into [0,1]:
+            rho_norm = rho/ rho_max
+            v_norm = v/ v_free
+            w_norm = w/ max_queue
+            u_mpc_norm = [ramp_rate, vsl/ v_free]
+            u_prev_norm = [prev_ramo, prev_vsl/ v_free]
+            d_norm = demands/ max_demands
+        Returns concentrated observation vector.
+        """
+        rho_max, v_free= 180.0, 102.0
+        rho_norm = np.asarray(rho).flatten() / rho_max
+        v_norm = np.asarray(v).flatten() / v_free
+        w_norm = np.asarray(w).flatten() / np.array([30.0, 30.0])
+
+        u_mpc_norm = u_mpc / np.array([1, v_free, v_free])
+        u_prev_norm = u_prev / np.array([1, v_free, v_free])
+
+        d_norm = demands / np.array([2000.0, 1000.0]) #np.array([3500.0, 1500.0])
+        return np.concatenate([rho_norm, v_norm, w_norm, u_mpc_norm, d_norm, u_prev_norm], dtype=np.float32)
+
+
 ##################################################################################
 # MAIN: Parameters
 ##################################################################################
@@ -287,7 +313,8 @@ times = np.arange(0, (T_warmup+T_sim+T_cooldown)*3600+sumo_step, sumo_step)
 
 if mpc_active:
     demands_forecast = create_demands(times/3600).T
-    mpc, Np, M_mpc, v_ctrl_last, r_last = create_MPC(mpc_step/3600)
+    mpc, Np, M_mpc, v_ctrl_last, r_last = create_MPC(metanet_step/3600, mpc_step/3600)
+    v_ctrl_mpc, r_mpc = v_ctrl_last, r_last
     sol_prev = None
     print("created MPC object")
 
@@ -303,6 +330,9 @@ results_sumo = {
     'Ramp_Metering_Rate': np.zeros(shape=(1, len(times))),
     'VSL': np.zeros(shape=(2, len(times))),
 }
+
+if RUN_MODE == "MPC_DRL":
+    drl_agent = DDPG.load("ddpg_low.zip")
 
 ##################################################################################
 # MAIN: Start Simulation
@@ -340,7 +370,7 @@ for k_sumo in range(len(times)):
         if d_hat.shape[0] < Np * M_mpc:
             d_hat = np.pad(d_hat, ((0, Np * M_mpc - d_hat.shape[0]), (0, 0)), "edge")
         
-        if sim_time >= T_warmup*3600 and sim_time <= (T_warmup+T_sim)*3600 and sim_time % mpc_step == 0:
+        if sim_time >= T_warmup*3600 and sim_time % mpc_step == 0:
             # Here, we handle the effect of the different time steps used for SUMO and METANET 
             # by averaging the last 10 measurements (i.e. spanning 10 seconds)
             mainline_density_perLane = np.mean(results_sumo['Density_perLane'][:, k_sumo-int(metanet_step//sumo_step)+1:k_sumo+1], axis=1)
@@ -355,15 +385,39 @@ for k_sumo in range(len(times)):
             )
 
             sol_prev = sol.vals
-            v_ctrl_last = sol.vals["v_ctrl"][:, 0] # np.round(sol.vals["v_ctrl"][:, 0]/5, decimals=0)*5
-            r_last = sol.vals["r"][0]
+            v_ctrl_mpc = sol.vals["v_ctrl"][:, 0] # np.round(sol.vals["v_ctrl"][:, 0]/5, decimals=0)*5
+            r_mpc = sol.vals["r"][0]
 
-            if np.isnan(v_ctrl_last[0]) or np.isnan(v_ctrl_last[1]) or np.isnan(r_last):
-                print(v_ctrl_last[0], v_ctrl_last[1], r_last)
+            if np.isnan(v_ctrl_mpc[0]) or np.isnan(v_ctrl_mpc[1]) or np.isnan(r_mpc):
+                print(v_ctrl_mpc[0], v_ctrl_mpc[1], r_mpc)
                 traci.close()
                 sys.exit(1)
 
             if RUN_MODE == "MPC":
+                v_ctrl_last = v_ctrl_mpc
+                r_last = r_mpc
+                # applying control actions in SUMO via helper functions
+                set_vsl("L1b", v_ctrl_last[0]*3.6) # convert VSL from km/h to m/s
+                set_vsl("L1c", v_ctrl_last[1]*3.6)
+                update_ramp_signal_control_logic(r_last.__float__(), cycle_duration, traffic_light)
+
+        if RUN_MODE == "MPC_DRL":
+            results_sumo['Ramp_Metering_Rate_MPC'][:, k_sumo] = np.asarray(r_mpc).flatten()
+            results_sumo['VSL_MPC'][:, k_sumo] = np.asarray(v_ctrl_mpc).flatten()
+
+            if sim_time >= T_warmup*3600 and sim_time % drl_step == 0:
+                mainline_density_perLane = np.mean(results_sumo['Density_perLane'][:, k_sumo-int(metanet_step//sumo_step)+1:k_sumo+1], axis=1)
+                mainline_speed = np.minimum(FREE_FLOW_SPEED, mainline_flow / (mainline_density + 1e-06)) # avoid division by zero
+                queues = np.mean(results_sumo['Queue_Lengths'][:, k_sumo-int(metanet_step//sumo_step)+1:k_sumo+1], axis=1)
+                
+                u_mpc = np.concat([r_mpc, v_ctrl_mpc]).flatten()
+                obs = normalize_observations(mainline_density_perLane, mainline_speed, queues, u_mpc, 
+                                             u_prev=np.concat([r_last, v_ctrl_last]).flatten(), 
+                                             demands=demands_forecast[k, :])
+                u_drl, _ = drl_agent.predict(obs, deterministic=True)
+                v_ctrl_last = np.clip(v_ctrl_mpc + u_drl[1:], a_min=20, a_max=FREE_FLOW_SPEED)
+                r_last = np.clip(r_mpc + u_drl[0], a_min=0, a_max=1)
+
                 # applying control actions in SUMO via helper functions
                 set_vsl("L1b", v_ctrl_last[0]*3.6) # convert VSL from km/h to m/s
                 set_vsl("L1c", v_ctrl_last[1]*3.6)
@@ -371,12 +425,7 @@ for k_sumo in range(len(times)):
         
         results_sumo['Ramp_Metering_Rate'][:, k_sumo] = np.asarray(r_last).flatten()
         results_sumo['VSL'][:, k_sumo] = np.asarray(v_ctrl_last).flatten()
-
-        if RUN_MODE == "MPC_DRL":
-            results_sumo['Ramp_Metering_Rate_MPC'][:, k_sumo] = np.asarray(r_last).flatten()
-            results_sumo['VSL_MPC'][:, k_sumo] = np.asarray(v_ctrl_last).flatten()
-            traci.close()
-            raise NotImplementedError
+            
     traci.simulationStep()
 
 traci.close()
@@ -442,6 +491,18 @@ if RUN_MODE == "MPC":
     plt.ylabel('VSL (m/s)')
 
 if RUN_MODE == "MPC_DRL":
-    raise NotImplementedError
+    plt.figure()
+    plt.plot(results_sumo['Time'], results_sumo['Ramp_Metering_Rate_MPC'].T, label="MPC")
+    plt.plot(results_sumo['Time'], results_sumo['Ramp_Metering_Rate'].T, label="MPC+DRL")
+    plt.legend()
+    plt.xlabel('Time (s)')
+    plt.ylabel('Ramp Metering Rate')
+
+    plt.figure()
+    plt.plot(results_sumo['Time'], results_sumo['VSL_MPC'].T, label="MPC")
+    plt.plot(results_sumo['Time'], results_sumo['VSL'].T, label="MPC+DRL")
+    plt.legend()
+    plt.xlabel('Time (s)')
+    plt.ylabel('VSL (m/s)')
 
 plt.show()
