@@ -468,7 +468,7 @@ plt.colorbar(sc, label='Speed (km/h)', ax=axs[0])
 axs[0].set_xlabel('Time (s)')
 axs[0].set_ylabel('Position (km)')
 
-sc = axs[1].pcolormesh(X, Y, results_sumo['Density_perLane'], shading='auto', cmap='jet_r')
+sc = axs[1].pcolormesh(X, Y, results_sumo['Density_perLane'], shading='auto', cmap='jet')
 plt.colorbar(sc, label='Density (veh/km/lane)', ax=axs[1])
 axs[1].set_xlabel('Time (s)')
 axs[1].set_ylabel('Position (km)')
