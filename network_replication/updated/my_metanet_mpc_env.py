@@ -184,67 +184,91 @@ class MetanetMPCEnv(gym.Env):
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
-        # generating raw demands and set horizon
-        self.time = np.arange(0, self.T_sim+self._T, self._T)
-        # forecast demands (without noise) for mpc
+
+        # 1) build your time and demands
+        self.time = np.arange(0, self.T_sim + self._T, self._T)
         self.demands_forecast = create_demands(self.time).T.astype(np.float32)
-        # actual demands (with noise) = nominal (forecast) + noise
-        noise = np.random.normal(loc=0.0, scale=self.noise_std[np.newaxis, :], size=self.demands_forecast.shape).astype(np.float32)
-        # clipping the results, so that I wouldn't get a negative demand values
-        self.demands_actual = np.clip(self.demands_forecast + noise, a_min=0.0, a_max=None)
+        noise = np.random.normal(
+            loc=0.0,
+            scale=self.noise_std[np.newaxis, :],
+            size=self.demands_forecast.shape
+        ).astype(np.float32)
+        self.demands_actual = np.clip(self.demands_forecast + noise, 0.0, None)
 
         self.current_timestep = 0
-        # Initializing conditions (same as in METANET)
-        self.rho_raw = np.array([22, 22, 22.5, 24, 30, 32], dtype=np.float32)
-        self.v_raw = np.array([80, 80, 78, 72.5, 66, 62], dtype=np.float32)
-        self.w_raw = np.zeros(self._n_orig, dtype=np.float32)
-        # Previous control: ramp = 1, vsl = v_free
-        self.u_prev_raw = np.concatenate([
-            np.ones(self._n_ramp, dtype=np.float32),
-            np.full(self._n_vsl, self._v_free, dtype=np.float32),
-        ])
-        self._sol_mpc_prev = None # clear previous MPC solution
 
-        # WARM-UP: 10 minutes without mpc or drl
-        u_reordered = cs.vertcat(self.u_prev_raw[self._n_ramp:], self.u_prev_raw[:self._n_ramp])
+        # 2) draw initial conditions until warm‐up produces no NaN
+        while True:
+            # a) random densities in [0, rho_max]
+            raw_rho = np.random.uniform(0.0, self._rho_max, size=self._n_seg)
+            self.rho_raw = np.round(raw_rho, 1).astype(np.float32)
+            # b) Greenshields equilibrium speeds
+            v_eq = self._v_free * (1.0 - raw_rho / self._rho_max)
+            self.v_raw = np.round(v_eq, 1).astype(np.float32)
+            # c) random queues in [0, max_queue]
+            raw_w = np.random.uniform(0.0, self._max_queue, size=self._n_orig)
+            self.w_raw = np.round(raw_w, 1).astype(np.float32)
 
-        # warm-up period of 10 minutes (600 seconds)
-        warm_up_steps = int(600/ (self._T*3600)) # self._T is in hours, so _T*3600 = 10 s
-        for _ in range(warm_up_steps):
-            x_next, _ = self._dynamics(
-                cs.vertcat(self.rho_raw, self.v_raw, self.w_raw),
-                u_reordered,
-                self.demands_actual[self.current_timestep, :]
+            # reset previous control & clear MPC warm‐start
+            self.u_prev_raw = np.concatenate([
+                np.ones(self._n_ramp, dtype=np.float32),
+                np.full(self._n_vsl, self._v_free, dtype=np.float32),
+            ])
+            self._sol_mpc_prev = None
+
+            # Warm‐up for 10 minutes (600 s)
+            u_reordered = cs.vertcat(
+                self.u_prev_raw[self._n_ramp:],
+                self.u_prev_raw[:self._n_ramp]
             )
-            self.rho_raw, self.v_raw, self.w_raw = cs.vertsplit(x_next, (
-            0, self._n_seg, 2 * self._n_seg, 2 * self._n_seg + self._n_orig))
-            self.rho_raw, self.v_raw, self.w_raw = np.array(self.rho_raw).flatten(), np.array(
-                self.v_raw).flatten(), np.array(self.w_raw).flatten()
+            warm_up_steps = int(600 / (self._T * 3600))
+            for _ in range(warm_up_steps):
+                x_next, _ = self._dynamics(
+                    cs.vertcat(self.rho_raw, self.v_raw, self.w_raw),
+                    u_reordered,
+                    self.demands_actual[self.current_timestep, :]
+                )
+                r1, v1, w1 = cs.vertsplit(
+                    x_next,
+                    (0, self._n_seg, 2 * self._n_seg, 2 * self._n_seg + self._n_orig)
+                )
+                self.rho_raw = np.array(r1).flatten()
+                self.v_raw = np.array(v1).flatten()
+                self.w_raw = np.array(w1).flatten()
 
+            # if warm‐up stuck you with any NaN, retry draw
+            if not (np.isnan(self.rho_raw).any() or
+                    np.isnan(self.v_raw).any() or
+                    np.isnan(self.w_raw).any()):
+                break
 
-        # TODO: If no issue remove asserts
-        assert not np.isnan(self.rho_raw).any(), "NaN in rho_raw"
-        assert not np.isnan(self.v_raw).any(), "NaN in v_raw"
-        assert not np.isnan(self.w_raw).any(), "NaN in w_raw"
-        assert not np.isnan(self.demands_forecast).any(), "NaN in demands_forecast"
+        # 3) run one MPC solve to get your initial baseline
         sol = self._mpc.solve(
-            pars={"rho_0": self.rho_raw, "v_0": self.v_raw, "w_0": self.w_raw, 
-                  "d": self.demands_forecast[:self._Np*self._M_mpc, :].T,
-                  "r_last": self.u_prev_raw[: self._n_ramp].reshape(-1, 1), 
-                  "v_ctrl_last": self.u_prev_raw[self._n_ramp:].reshape(-1, 1)},
+            pars={
+                "rho_0": self.rho_raw,
+                "v_0": self.v_raw,
+                "w_0": self.w_raw,
+                "d": self.demands_forecast[: self._Np * self._M_mpc, :].T,
+                "r_last": self.u_prev_raw[: self._n_ramp].reshape(-1, 1),
+                "v_ctrl_last": self.u_prev_raw[self._n_ramp:].reshape(-1, 1)
+            },
             vals0=self._sol_mpc_prev
         )
-        self._sol_mpc_prev = sol.vals # store for next solve
-        v_ctrl_last = sol.vals["v_ctrl"][:, 0] # extract VSL solution
-        r_last = sol.vals["r"][0] # extract VSL solution
+        self._sol_mpc_prev = sol.vals
+        v_ctrl_last = sol.vals["v_ctrl"][:, 0]
+        r_last = sol.vals["r"][0]
         self.u_mpc_raw = np.concatenate([r_last, v_ctrl_last]).astype(np.float32).flatten()
-        # Building and returning normalized observations
-        self.state_norm = self.normalize_observations(self.rho_raw, self.v_raw, self.w_raw, self.u_mpc_raw, self.u_prev_raw, self.demands_actual[0])
-        # Creating results dict for plotting
+
+        # 4) pack and return normalized state
+        self.state_norm = self.normalize_observations(
+            self.rho_raw, self.v_raw, self.w_raw,
+            self.u_mpc_raw, self.u_prev_raw,
+            self.demands_actual[0]
+        )
         self.sim_results = {
-            "Density": [], "Flow": [], "Speed": [], "Queue_Length": [], "Origin_Flow": [], 
-            "Ramp_Metering_Rate": [], "VSL": [],
-            "u_MPC": [], "u_DRL": [],
+            "Density": [], "Flow": [], "Speed": [], "Queue_Length": [],
+            "Origin_Flow": [], "Ramp_Metering_Rate": [], "VSL": [],
+            "u_MPC": [], "u_DRL": []
         }
         return self.state_norm, {}
 
@@ -288,9 +312,8 @@ class MetanetMPCEnv(gym.Env):
             queue_penalty = self.w_p * Ps.sum()
 
             # subtract both as a scalar
-            reward -= (mpc_cost + queue_penalty)
+            reward -= (mpc_cost + queue_penalty)/ 1e6
             self.current_timestep += 1
-            print(f"[ENV] current_timestep = {self.current_timestep}")
 
         # update previous control action for next step
         self.u_prev_raw = u_combined.copy()
@@ -307,8 +330,8 @@ class MetanetMPCEnv(gym.Env):
             if d_hat.shape[0] < self._Np*self._M_mpc:
                 d_hat = np.pad(d_hat, ((0, self._Np*self._M_mpc-d_hat.shape[0]), (0, 0)), "edge")
             sol = self._mpc.solve(
-                pars={"rho_0": self.rho_raw, "v_0": self.v_raw, "w_0": self.w_raw, "d": d_hat.T, 
-                      "r_last": self.u_prev_raw[: self._n_ramp].reshape(-1, 1), 
+                pars={"rho_0": self.rho_raw, "v_0": self.v_raw, "w_0": self.w_raw, "d": d_hat.T,
+                      "r_last": self.u_prev_raw[: self._n_ramp].reshape(-1, 1),
                       "v_ctrl_last": self.u_prev_raw[self._n_ramp:].reshape(-1, 1)},
                 vals0=self._sol_mpc_prev,
             )
@@ -319,7 +342,7 @@ class MetanetMPCEnv(gym.Env):
             self.u_mpc_raw = np.concatenate([r_last, v_ctrl_last]).astype(np.float32).flatten()
 
         self.state_norm = self.normalize_observations(self.rho_raw, self.v_raw, self.w_raw, self.u_mpc_raw, self.u_prev_raw, self.demands_actual[self.current_timestep])
-        done = False
+        done = truncated
         reward = float(reward) # convert to float
         return self.state_norm, reward, done, truncated, {}
 

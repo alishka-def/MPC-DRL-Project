@@ -234,7 +234,7 @@ F: cs.Function = metanet.engine.to_function(
 demands = create_demands(time).T
 
 # Creating the MPC controller
-Np, Nc, M = 7, 5, 6 # 7-> base number of prediction steps for mpc; 5-> base number of control steps; 6-> multiplier
+Np, Nc, M = 2, 2, 30 # 7-> base number of prediction steps for mpc; 5-> base number of control steps; 6-> multiplier
 mpc = Mpc[cs.SX]( # creating mpc controller
     nlp=Nlp[cs.SX](sym_type="SX"), # setting up instance of nonlinear programming problem -> underlying optimization problem that mpc will solve
     prediction_horizon=Np * M, # over 42 steps
@@ -330,7 +330,8 @@ for k_sumo in range(len(times)):
         sol = mpc.solve(
             pars={"rho_0": mainline_density_perLane, "v_0": mainline_speed, "w_0": queues, "d": d_hat.T, "v_ctrl_last": v_ctrl_last, "r_last": r_last},
             vals0=sol_prev,
-        ) 
+        )
+
 
         sol_prev = sol.vals
         v_ctrl_last = sol.vals["v_ctrl"][:, 0]
@@ -346,7 +347,7 @@ for k_sumo in range(len(times)):
         set_vsl("L1b", v_ctrl_last[1]*3.6)
         print("v_ctrl_last: ", v_ctrl_last)
         print("r_last: ", r_last)
-        update_ramp_signal_control_logic(r_last.__float__(), control_step, traffic_light)
+        update_ramp_signal_control_logic(r_last.__float__(), 60, traffic_light)
 
     results_sumo['Ramp_Metering_Rate'][:, k_sumo] = np.asarray(r_last).flatten()
     results_sumo['VSL'][:, k_sumo] = np.asarray(v_ctrl_last).flatten()

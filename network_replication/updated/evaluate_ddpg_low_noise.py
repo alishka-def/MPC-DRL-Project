@@ -7,7 +7,7 @@ if __name__ == "__main__":
     # Instantiate env
     env = MetanetMPCEnv()
     # Load trained policy
-    model = DDPG.load("from_euler/ddpg_low")
+    model = DDPG.load("Logs/low/ddpg_low_final.zip")
 
     # Reset once, get initial observation
     obs, _ = env.reset()
