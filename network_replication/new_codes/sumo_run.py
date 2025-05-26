@@ -16,6 +16,7 @@ from stable_baselines3 import DDPG
 from sym_metanet import (
     Destination, Link, LinkWithVsl, MainstreamOrigin, MeteredOnRamp, Network, Node, engines,
 )
+from matplotlib.colors import Normalize
 
 ########################################################################
 # Global: Parameters
@@ -232,7 +233,7 @@ def create_MPC(metanet_interval, mpc_interval):
 
     # Creating the MPC controller
     Np, Nc, M = 2, 2, int(np.round(mpc_interval/T, decimals=0))
-    print(M)
+    print("MPC control spacing (M_mpc) = ", M)
     mpc = Mpc[cs.SX]( # creating mpc controller
         nlp=Nlp[cs.SX](sym_type="SX"), 
         prediction_horizon=Np*M, 
@@ -461,13 +462,13 @@ plt.ylabel('Queue Length (veh)')
 
 X, Y = np.meshgrid(results_sumo['Time'], (np.arange(len(mainline_edges)) + 1) * 1000)
 fig, axs = plt.subplots(1, 3, figsize=(12, 4))
-sc = axs[0].pcolormesh(X, Y, results_sumo['Speed'], shading='auto', cmap='jet_r')
+norm = Normalize(vmin=0, vmax=FREE_FLOW_SPEED)
+sc = axs[0].pcolormesh(X, Y, results_sumo['Speed'], shading='auto', cmap='jet_r', norm=norm)
 plt.colorbar(sc, label='Speed (km/h)', ax=axs[0])
-plt.clim([0, FREE_FLOW_SPEED])
 axs[0].set_xlabel('Time (s)')
 axs[0].set_ylabel('Position (km)')
 
-sc = axs[1].pcolormesh(X, Y, results_sumo['Density_perLane'], shading='auto', cmap='jet_r')
+sc = axs[1].pcolormesh(X, Y, results_sumo['Density_perLane'], shading='auto', cmap='jet')
 plt.colorbar(sc, label='Density (veh/km/lane)', ax=axs[1])
 axs[1].set_xlabel('Time (s)')
 axs[1].set_ylabel('Position (km)')
