@@ -21,7 +21,7 @@ from matplotlib.colors import Normalize
 ########################################################################
 # Global: Parameters
 ########################################################################
-RUN_MODE = "MPC" # options: "NO_CTRL" or "MPC" or "MPC_DRL"
+RUN_MODE = "MPC_DRL" # options: "NO_CTRL" or "MPC" or "MPC_DRL"
 
 ##################################################################################
 # Setting up SUMO Environment
@@ -96,7 +96,7 @@ def get_edge_density(edge_ids):
     for edge in edge_ids:
         veh_count = traci.edge.getLastStepVehicleNumber(edge) # getting the number of vehicles on the edge
         length = edge_lengths[edge] # returning the length of the edge in meters
-        density = veh_count / (length / 1000.0) / edge_lanes[edge]  # computing density in veh/km
+        density = veh_count / (length / 1000.0)  # computing density in veh/km
         densities.append(density)
         lane_densities.append(density / edge_lanes[edge])  # computing density in veh/km/lane
     return np.array(densities), np.array(lane_densities) # converting list to NumPy array e.g. [a,b,c,d,e,f]
@@ -438,7 +438,7 @@ T = 10.0 / 3600
 L = 1
 lanes = 2
 tts = T * np.sum(np.sum(results_sumo['Density_perLane'], axis=0) * L * lanes + np.sum(results_sumo['Queue_Lengths'], axis=0))
-vkt = T * np.sum(np.sum(results_sumo['Flow'], axis=0) * L * lanes)
+vkt = T * np.sum(np.sum(results_sumo['Flow'], axis=0) * L)
 print(f"TTS = {tts:.3f} veh.h, VKT = {vkt:.3f} veh.km, Avg Speed = {vkt/tts:.3f} km/h")
 
 ##################################################################################
