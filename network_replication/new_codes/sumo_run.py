@@ -32,7 +32,7 @@ sys.path.append('C:/Users/selbaklish/Desktop/SUMO/sumo-1.19.0/tools')
 sys.path.append('C:/Users/selbaklish/Desktop/SUMO/sumo-1.19.0/tools/libsumo')
 
 # Defining SUMO configurations
-sumoBinary = "C:/Users/selbaklish/Desktop/SUMO/sumo-1.19.0/bin/sumo-gui"
+sumoBinary = "C:/Users/selbaklish/Desktop/SUMO/sumo-1.19.0/bin/sumo"
 Sumo_config = [
     sumoBinary,
     '-c', 'toy_highway_network.sumocfg',
@@ -347,7 +347,7 @@ for k_sumo in range(len(times)):
     results_sumo['Time'][k_sumo] = sim_time
 
     # using helper functions to define the current states
-    results_sumo['Speed'][:, k_sumo] = get_edge_speed(mainline_edges)
+    results_sumo['Speed'][:, k_sumo] = np.clip(get_edge_speed(mainline_edges), a_min=0, a_max=FREE_FLOW_SPEED)
     results_sumo['Density'][:, k_sumo], results_sumo['Density_perLane'][:, k_sumo] = get_edge_density(mainline_edges)
     results_sumo['Flow'][:, k_sumo] = results_sumo['Density'][:, k_sumo] * results_sumo['Speed'][:, k_sumo]
     results_sumo['Queue_Lengths'][:, k_sumo] = get_edge_queues(queue_edge_main, onramp_edges[0])
@@ -362,6 +362,8 @@ for k_sumo in range(len(times)):
                 stop_ctrl = True
             results_sumo['Ramp_Metering_Rate'][:, k_sumo] = np.asarray(1.0).flatten()
             results_sumo['VSL'][:, k_sumo] = np.asarray([FREE_FLOW_SPEED, FREE_FLOW_SPEED]).flatten()
+            results_sumo['Ramp_Metering_Rate_MPC'][:, k_sumo] = np.asarray(1.0).flatten()
+            results_sumo['VSL_MPC'][:, k_sumo] = np.asarray([FREE_FLOW_SPEED, FREE_FLOW_SPEED]).flatten()
             traci.simulationStep()
             continue
 
@@ -437,7 +439,7 @@ L = 1
 lanes = 2
 tts = T * np.sum(np.sum(results_sumo['Density_perLane'], axis=0) * L * lanes + np.sum(results_sumo['Queue_Lengths'], axis=0))
 vkt = T * np.sum(np.sum(results_sumo['Flow'], axis=0) * L * lanes)
-print(f"TTS = {tts:.3f} veh.h, VKT = {vkt:.3f} veh.km")
+print(f"TTS = {tts:.3f} veh.h, VKT = {vkt:.3f} veh.km, Avg Speed = {vkt/tts:.3f} km/h")
 
 ##################################################################################
 # Plotting
