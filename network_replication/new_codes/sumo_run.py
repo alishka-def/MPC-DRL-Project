@@ -27,18 +27,23 @@ RUN_MODE = "MPC" # options: "NO_CTRL" or "MPC" or "MPC_DRL"
 # Setting up SUMO Environment
 ##################################################################################
 # Setting up SUMO environment
-os.environ['SUMO_HOME'] = 'C:/Users/selbaklish/Desktop/SUMO/sumo-1.19.0/'
-sys.path.append('C:/Users/selbaklish/Desktop/SUMO/sumo-1.19.0/tools')
-sys.path.append('C:/Users/selbaklish/Desktop/SUMO/sumo-1.19.0/tools/libsumo')
+if 'SUMO_HOME' in os.environ:
+    tools = os.path.join(os.environ['SUMO_HOME'], 'tools')
+    libsumo = os.path.join(os.environ['SUMO_HOME'], 'libsumo')
+    sys.path.append(tools)
+    sys.path.append(libsumo)
+
+else:
+    sys.exit("please declare environment variable 'SUMO_HOME'")
 
 # Defining SUMO configurations
-sumoBinary = "C:/Users/selbaklish/Desktop/SUMO/sumo-1.19.0/bin/sumo-gui"
 Sumo_config = [
-    sumoBinary,
+    "sumo-gui",
     '-c', 'toy_highway_network.sumocfg',
     '--lateral-resolution', '0.1', 
     '--seed', '1'
 ]
+
 
 ##################################################################################
 # Setting up network parameters

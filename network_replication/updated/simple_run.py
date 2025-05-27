@@ -11,9 +11,9 @@ import seaborn as sns
 # Setting up SUMO environment
 if 'SUMO_HOME' in os.environ:
     tools = os.path.join(os.environ['SUMO_HOME'], 'tools')
-    #libsumo = os.path.join(os.environ['SUMO_HOME'], 'libsumo')
+    libsumo = os.path.join(os.environ['SUMO_HOME'], 'libsumo')
     sys.path.append(tools)
-    #sys.path.append(libsumo)
+    sys.path.append(libsumo)
 
 else:
     sys.exit("please declare environment variable 'SUMO_HOME'")

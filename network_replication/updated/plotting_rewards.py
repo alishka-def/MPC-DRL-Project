@@ -2,29 +2,36 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
+
 # ————— Parameters —————
 monitor_file = "updated_logs/low/monitor.csv"
-output_plot  = "plots/low_updated_2_noise_rewards_per_episode.png"
+output_plot  = "plots/low_updated_3_noise_rewards_per_episode.png"
 
 # ————— 1) Load the CSV —————
 df = pd.read_csv(monitor_file, skiprows=1)
 df['episode'] = np.arange(1, len(df) + 1)
 
-# ————— 2) Compute linear trend —————
-# fit r = m * episode + b
-m, b = np.polyfit(df['episode'], df['r'], deg=1)
-trend = m * df['episode'] + b
+x = df['episode'].values
+y = df['r'].values
 
-# ————— 3) Plot rewards and trend line —————
+# ————— 2) Fit a polynomial of degree 2 (quadratic) —————
+deg = 2
+coeffs = np.polyfit(x, y, deg=deg)        # returns [a, b, c] for ax^2 + bx + c
+poly   = np.poly1d(coeffs)
+y_fit  = poly(x)
+
+# If you wanted cubic, just do deg=3 above.
+
+# ————— 3) Plot —————
 plt.figure(figsize=(10, 6))
-plt.plot(df['episode'], df['r'],
-         marker='.', linestyle='-', alpha=0.6, label='Reward per episode')
-plt.plot(df['episode'], trend,
-         color='magenta', linewidth=2, label=f'Trend: y={m:.2e}·x+{b:.1f}')
+plt.plot(x, y,         marker='.', linestyle='-', alpha=0.6, label='Reward per episode')
+plt.plot(x, y_fit,     color='magenta', linewidth=2, label=f'Poly‐deg{deg} fit')
 
+# Optional: show the equation
+a, b, c = coeffs
+plt.title(f"Rewards with quadratic fit: y = {a:.2e} x² + {b:.2e} x + {c:.2f}")
 plt.xlabel("Episode")
 plt.ylabel("Reward")
-plt.title("Training Rewards per Episode with Linear Trend")
 plt.grid(True)
 plt.legend()
 plt.tight_layout()

@@ -54,7 +54,7 @@ class NoiseDecayCallback(BaseCallback):
             noise._sigma = new_sigma
         return True
 
-def train_and_test_for_noise(label: str, var: np.ndarray, total_timesteps: int = 150 * 300):
+def train_and_test_for_noise(label: str, var: np.ndarray, total_timesteps: int = 150 * 1500):
     # Train one DDPG agent under a given noise variance
 
     # preparing separate logging directory
@@ -112,8 +112,7 @@ def train_and_test_for_noise(label: str, var: np.ndarray, total_timesteps: int =
 
     # training with decay
     decay_cb = NoiseDecayCallback(decay_rate=5e-6)
-    model.learn(total_timesteps=total_timesteps, callback=decay_cb)
-    #model.learn(total_timesteps=total_timesteps, callback=[decay_cb, checkpoint_cb])
+    model.learn(total_timesteps=total_timesteps, callback=[decay_cb, checkpoint_cb])
 
     # saving the agent
     final_path = os.path.join(BASE_LOG_DIR, label, f"ddpg_{label}_final")

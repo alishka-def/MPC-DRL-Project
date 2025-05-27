@@ -58,7 +58,7 @@ def normalize_observations(rho: np.ndarray, v: np.ndarray, w: np.ndarray,
         rho_max, v_free= 180.0, 102.0
         rho_norm = np.asarray(rho).flatten() / rho_max
         v_norm = np.asarray(v).flatten() / v_free
-        w_norm = np.asarray(w).flatten() / np.array([200.0, 100.0])
+        w_norm = np.asarray(w).flatten() / np.array([200.0, 70.0])
 
         u_mpc_norm = u_mpc / np.array([1, v_free, v_free])
         u_prev_norm = u_prev / np.array([1, v_free, v_free])
@@ -182,7 +182,8 @@ if RUN_NO_CTRL:
 
     # compute VKT and VHT metrics
     vkt, vht = compute_metrics(density, flow, queue_lengths, num_lanes, L, T)
-    print(f"VKT = {vkt:.4f} veh.km \nVHT or TTS = {vht:.4f} veh.h")
+    print(f"VKT = {vkt:.4f} veh.km \nVHT or TTS = {vht:.4f} veh.h \n Avg Speed = {vkt/vht:.4f} km/h")
+
 
     # plotting
     _, axs = plt.subplots(3, 2, constrained_layout=True, sharex=True)
@@ -335,7 +336,7 @@ if RUN_MPC_CTRL:
 
     # compute VKT and VHT metrics
     vkt, vht = compute_metrics(density, flow, queue_lengths, num_lanes, L, T)
-    print(f"VKT = {vkt:.4f} veh.km \nVHT or TTS = {vht:.4f} veh.h")
+    print(f"VKT = {vkt:.4f} veh.km \nVHT or TTS = {vht:.4f} veh.h \n Avg Speed = {vkt/vht:.4f} km/h")
 
     # plotting
     _, axs = plt.subplots(4, 2, constrained_layout=True, sharex=True)
@@ -393,6 +394,17 @@ if RUN_MPC_CTRL:
 ########################################################################
 # Main: Simulation in Closed Loop For Ramp Metering and VSL with DRL
 ########################################################################
+# 1) find the directory this script lives in
+here = os.path.dirname(os.path.realpath(__file__))
+# 2) climb up into your project root and then down into the folder with your zip
+zip_path = os.path.normpath(
+    os.path.join(here, "..",           # up from new_codes/
+                        "updated",
+                        "updated_logs",
+                        "low",
+                        "ddpg_low_final.zip")
+)
+
 if RUN_MPC_DRL_CTRL:
     print("**************************** MPC + DRL: RAMP METERING + VSL ****************************")
     # Load trained policy
@@ -401,7 +413,7 @@ if RUN_MPC_DRL_CTRL:
     elif DEMAND_NOISE == "HIGH":
         model = DDPG.load("ddpg_high.zip")
     else:
-        model = DDPG.load("ddpg_low.zip")
+        model = DDPG.load(zip_path)
 
     L1 = metanet.LinkWithVsl(4, num_lanes, L, rho_max, rho_crit, v_free, a, name="L1",
                             segments_with_vsl={2, 3}, alpha=0.1) # alpha = Non-compliance factor to the indicated speed limit.
@@ -488,9 +500,9 @@ if RUN_MPC_DRL_CTRL:
             sol_prev = sol.vals
         
         if k >= int(T_warmup//T) and k <= int((T_warmup+T_sim)//T) and k % M_drl == 0:
-            u_mpc = np.concat([r_last, v_ctrl_last]).flatten()
+            u_mpc = np.concatenate([r_last, v_ctrl_last]).flatten()
             obs = normalize_observations(rho, v, w, u_mpc, 
-                                         u_prev=np.concat([r_last_combined, v_ctrl_last_combined]).flatten(), 
+                                         u_prev=np.concatenate([r_last_combined, v_ctrl_last_combined]).flatten(),
                                          demands=demands[k, :])
             u_drl, _ = model.predict(obs, deterministic=True)
             v_ctrl_last_combined = np.clip(v_ctrl_last + u_drl[1:], a_min=v_min, a_max=v_free)
@@ -519,7 +531,7 @@ if RUN_MPC_DRL_CTRL:
 
     # compute VKT and VHT metrics
     vkt, vht = compute_metrics(density, flow, queue_lengths, num_lanes, L, T)
-    print(f"VKT = {vkt:.4f} veh.km \nVHT or TTS = {vht:.4f} veh.h")
+    print(f"VKT = {vkt:.4f} veh.km \nVHT or TTS = {vht:.4f} veh.h \n Avg Speed = {vkt/vht:.4f} km/h")
 
     # plotting
     _, axs = plt.subplots(4, 2, constrained_layout=True, sharex=True)
