@@ -7,7 +7,7 @@ if __name__ == "__main__":
     # Instantiate env
     env = MetanetMPCEnv()
     # Load trained policy
-    model = DDPG.load("../updated_logs/low/ddpg_low_final.zip")
+    model = DDPG.load("../logs/low/ddpg_low_final.zip")
 
     # Reset once, get initial observation
     obs, _ = env.reset()
@@ -38,7 +38,7 @@ if __name__ == "__main__":
     plt.plot(time, env.sim_results["Density"].T)
     plt.xlabel("Time [h]")
     plt.ylabel("Density [veh/km/lane]")
-    plt.savefig("plots/euler_density.png")
+    plt.savefig("../plots/density.png")
 
     plt.figure()
     plt.plot(time, env.sim_results["u_MPC"][0, :], label="MPC Baseline")
@@ -46,7 +46,7 @@ if __name__ == "__main__":
     plt.legend()
     plt.xlabel("Time [h]")
     plt.ylabel("Ramp Metering Rate [-]")
-    plt.savefig("plots/amp_metering_rate.png")
+    plt.savefig("../plots/ramp_metering_rate.png")
 
     plt.show()
 

@@ -1,7 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
-logdir = "logs/low"  # or medium, high
+logdir = "../logs/low"  # or medium, high
 df = pd.read_csv(f"{logdir}/actual_demands.csv")
 
 plt.figure()

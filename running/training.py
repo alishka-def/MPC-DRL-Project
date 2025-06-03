@@ -7,7 +7,7 @@ from my_metanet_mpc_env import MetanetMPCEnv
 from stable_baselines3.common.callbacks import BaseCallback
 import pandas as pd
 
-BASE_LOG_DIR = "../updated_logs"
+BASE_LOG_DIR = "../logs"
 class EpisodeCheckpointCallback(BaseCallback):
     def __init__(self, save_every: int, save_path: str, name_prefix: str = "ddpg_ep", verbose: int = 0):
         super().__init__(verbose)

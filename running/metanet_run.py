@@ -399,8 +399,7 @@ here = os.path.dirname(os.path.realpath(__file__))
 # 2) climb up into your project root and then down into the folder with your zip
 zip_path = os.path.normpath(
     os.path.join(here, "..",           # up from new_codes/
-                        "updated",
-                        "updated_logs",
+                        "logs",
                         "low",
                         "ddpg_low_final.zip")
 )
