@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2025-04-11 13:39:16 by Eclipse SUMO sumo Version 1.22.0
+-->
+
+<sumoConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/sumoConfiguration.xsd">
+
+    <time>
+        <begin value="0" />
+        <step-length value="1" />
+        <end value="13500" />
+    </time>
+
+    <processing>
+        <time-to-teleport value="-1"/> <!-- Disable Teleportation -->
+    </processing>
+
+    <input>
+        <net-file value="toy_highway_network.net.xml"/>
+        <route-files value="toy_highway_network.rou.xml"/>
+        <additional-files value="edge_logging.add.xml"/>
+    </input>
+
+    <output>
+	<tripinfo-output value="Logs/log_trip_info.xml" write-unfinished="true"/>
+	<summary-output value="Logs/log_summary.xml"/>
+    </output>
+
+</sumoConfiguration>

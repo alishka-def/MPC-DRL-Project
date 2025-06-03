@@ -1,7 +1,0 @@
-casadi==3.6.7
-csnlp==1.6.1
-gymnasium==1.1.1
-matplotlib==3.9.2
-stable_baselines3==2.6.0
-sym_metanet==1.1.1
-torch==2.6.0
