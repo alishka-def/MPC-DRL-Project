@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 # ————— Parameters —————
 monitor_file = "../logs/low/monitor.csv"
-output_plot  = "../plots/low_noise_rewards_per_episode.png"
+output_plot  = "../plots/low_noise_rewards_per_episode_low.png"
 
 # ————— 1) Load the CSV —————
 df = pd.read_csv(monitor_file, skiprows=1)

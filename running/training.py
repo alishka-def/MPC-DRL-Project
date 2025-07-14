@@ -39,7 +39,7 @@ class NoiseDecayCallback(BaseCallback):
 
     def __init__(self, decay_rate: float, verbose=0):
         super().__init__(verbose)
-        self.decay_rate = decay_rate  # e.g. 5e-6 per step
+        self.decay_rate = decay_rate
 
     def _on_step(self) -> bool:
         # access your model's exploration noise
@@ -86,8 +86,8 @@ def train_and_test_for_noise(label: str, var: np.ndarray, total_timesteps: int =
         dt=1.0
     )
 
-    initial_lr = 1e-4
-    final_lr = 1e-5
+    initial_lr = 1e-5
+    final_lr = 1e-6
     lr_schedule = lambda progress: final_lr + (initial_lr - final_lr) * progress
     model = DDPG(
         "MlpPolicy",
@@ -97,6 +97,7 @@ def train_and_test_for_noise(label: str, var: np.ndarray, total_timesteps: int =
         buffer_size=int(2e5),
         learning_rate=lr_schedule,
         gamma=0.99,
+        n_steps=10, # using 10 steps returns for TD update
         tau=0.005,
         policy_kwargs=dict(net_arch=[256,256]),
         verbose=1,
@@ -111,7 +112,9 @@ def train_and_test_for_noise(label: str, var: np.ndarray, total_timesteps: int =
     )
 
     # training with decay
-    decay_cb = NoiseDecayCallback(decay_rate=5e-6)
+    FASTER_DECAY_STEPS = 50000
+    decay_rate = 0.3/ FASTER_DECAY_STEPS
+    decay_cb = NoiseDecayCallback(decay_rate=decay_rate)
     model.learn(total_timesteps=total_timesteps, callback=[decay_cb, checkpoint_cb])
 
     # saving the agent

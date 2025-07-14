@@ -1,6 +1,7 @@
 ########################################################################
 # Imports
 ########################################################################
+import logging
 import os
 import sys
 
@@ -17,12 +18,13 @@ from gymnasium import spaces
 ########################################################################
 # Methods
 ########################################################################
-# Generate time-varying demands for two origins (mainline and on-ramp)
+# Generate time-varying demands for two origins (mainline and on-ramp).
+# Warm-up period and cool down is added to demand profile.
 def create_demands(time: np.ndarray) -> np.ndarray:
     return np.stack(
         (
-            np.interp(time, (2.0, 2.25), (3500, 1000)),
-            np.interp(time, (0.0, 0.15, 0.35, 0.5), (500, 1500, 1500, 500)),
+            np.interp(time, (0, 15/60, 2.50, 2.75, 3.00, 3.25), (0, 3500, 3500, 1000, 1000, 0)),
+            np.interp(time, (0, 15/60, 30/60, 0.60, 0.85, 1.0, 3.00, 3.25), (0, 500, 500, 1500, 1500, 500, 500, 0))
         )
     )
 
@@ -32,12 +34,42 @@ def create_demands(time: np.ndarray) -> np.ndarray:
 class MetanetMPCEnv(gym.Env):
     def __init__(self, M_drl: int = 6, w_u: float = 0.4, w_p: float = 10.0):
         super(MetanetMPCEnv, self).__init__()
+
+        # adding debugging flags
+        self.debug_mode = True
+        self.step_count = 0
+        self.nan_count = 0
+        self.mpc_fail_count = 0
+        self.episode_count = 0
+        # set up logging
+        logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+        self.logger = logging.getLogger(__name__)
+
+
         self._init_network() # build METANET network model
         self._init_mpc() # set up MPC controller
-        self.T_sim = 2.5 # simulation time of 2.5 hours
+        self.T_warmup = 30.0/60 # warm-up time of 30 minutes (0.5 hours)
+        self.T_sim = 2.5 # simulation time of 2.5 hours (main simulation)
+        self.T_cooldown = 45.0/60 # cool-down time of 45 minutes (0.75 hours)
         self.M_drl = M_drl # number of DRL steps (6*10=60s)
         self.w_u = w_u # weight for the control action
         self.w_p = w_p # penalty weight for queue violations
+
+        # initializing state variables
+        self.demands_actual = []
+        self.time = []
+        self.demands_forecast = []
+        self.current_timestep = 0
+        self.u_prev_raw = []
+        self.rho_raw = []
+        self.v_raw = []
+        self.w_raw = []
+        self._sol_mpc_prev = None
+        self.u_mpc_raw = []
+        self.state_norm = []
+        self.sim_results = {}
+
+
 
         # variance for low-level noise [mainline, on-ramp]
         self.noise_var = np.array([75.0, 30.0], dtype=np.float32)
@@ -60,6 +92,7 @@ class MetanetMPCEnv(gym.Env):
             high=+self.w_u*full_range.astype(np.float32), # maximum action values
             dtype=np.float32
         )
+
         # Observation space (equation 7)
         obs_dim = (
             2 * self._n_seg # densities + speeds
@@ -76,6 +109,7 @@ class MetanetMPCEnv(gym.Env):
         )
         self.reset()
 
+
     def _init_network(self):
         # METANET parameters
         self._T = 10.0 / 3600 # temporal discretization (hours)
@@ -91,6 +125,7 @@ class MetanetMPCEnv(gym.Env):
         self._capacity_lane = 2000.0 # capacity per lane (veh/h/lane)
         self._v_free = 102.0 # free flow speed (km/h)
         self._vsl_min = 20.0 # minimum speed limit (km/h)
+
 
         # METANET network
         N1 = metanet.Node(name="N1")
@@ -115,7 +150,7 @@ class MetanetMPCEnv(gym.Env):
         metanet.engines.use("casadi", sym_type="SX")
         self._net.is_valid(raises=True)
         # initialize states and compile dynamics function
-        self._net.step(T=self._T, tau=self._tau, eta=self._eta, kappa=self._kappa, delta=self._delta, init_conditions={O1: {"v_ctrl": self._v_free*2}})
+        self._net.step(T=self._T, tau=self._tau, eta=self._eta, kappa=self._kappa, delta=self._delta, init_conditions={O1: {"v_ctrl": self._v_free}})
         self._dynamics = metanet.engine.to_function(
             net=self._net, more_out=True, compact=2, T=self._T
         )
@@ -137,12 +172,12 @@ class MetanetMPCEnv(gym.Env):
         # define states: densities, speeds, queue lengths
         rho, _ = self._mpc.state("rho", self._n_seg, lb=0)
         v, _ = self._mpc.state("v", self._n_seg, lb=0)
-        w, _ = self._mpc.state("w", self._n_orig, lb=0, ub=[[200], [100]]) # O2 queue is constrained
+        w, _ = self._mpc.state("w", self._n_orig, lb=0, ub= self._max_queue.tolist()) # O1 and O2 queue are constrained
         # define actions: VSL controls and ramp metering rate
         v_ctrl, _ = self._mpc.action("v_ctrl", self._n_vsl, lb=self._vsl_min, ub=self._v_free)
         r, _ = self._mpc.action("r", lb=0, ub=1)
         # define disturbance (demands)
-        d = self._mpc.disturbance("d", self._n_orig)
+        d  = self._mpc.disturbance("d", self._n_orig)
         # set dynamics constraints
         self._mpc.set_dynamics(self._dynamics)
         # set objective function
@@ -157,10 +192,77 @@ class MetanetMPCEnv(gym.Env):
         opts = {
             "expand": True,
             "print_time": False,
-            "ipopt": {"max_iter": 500, "sb": "yes", "print_level": 0},
+            "ipopt": {"max_iter": 500,
+                      "sb": "yes",
+                      "print_level": 0,
+                      "tol": 1e-6,
+                      "acceptable_tol": 1e-4,
+                      "mu_strategy": "adaptive",
+                      "max_cpu_time": 10.0,},
         }
         self._mpc.init_solver(solver="ipopt", opts=opts)
-    
+
+    def _check_state_validity(self, rho, v, w):
+        issues = []
+        # check densities
+        if np.any(rho<0):
+            issues.append(f"Negative density: min={np.min(rho)}")
+        if np.any(rho> self._rho_max*1.1):
+            issues.append(f"Excessive density: max={np.max(rho)}")
+
+        # check speeds
+        if np.any(v<0):
+            issues.append(f"Negative speed: min={np.min(v)}")
+        if np.any(v > self._v_free * 1.2):
+            issues.append(f"Excessive speed: max={np.max(v)}")
+
+        # check queues
+        if np.any(w<0):
+            issues.append(f"Negative queue: min={np.min(w)}")
+
+        queue_violations = w - self._max_queue
+        if np.any(queue_violations>0):
+            violating_queues = np.where(queue_violations>0)[0]
+            for i in violating_queues:
+                queue_type = "mainline" if i == 0 else "on-ramp"
+                issues.append(f"Queue overflow ({queue_type}): {w[i]:.1f} > {self._max_queue[i]:.1f}")
+
+        # check for NaN or inf values
+        for name, arr in [("rho", rho), ("v", v), ("w", w)]:
+            if np.any(np.isnan(arr)):
+                issues.append(f"NaN in {name}")
+            if np.any(np.isinf(arr)):
+                issues.append(f"Inf in {name}")
+        return issues
+
+    def _safe_mpc_solve(self, pars, vals0=None):
+        try:
+            # Validate parameters before solving
+            for key, value in pars.items():
+                if np.any(np.isnan(value)) or np.any(np.isinf(value)):
+                    self.logger.error(f"Invalid MPC parameter {key}: {value}")
+                    return None
+            # check state bounds
+            state_issues = self._check_state_validity(pars["rho_0"], pars["v_0"], pars["w_0"])
+            if state_issues:
+                self.logger.warning(f"State issues before MPC solve: {state_issues}")
+
+            # Solve MPC
+            sol = self._mpc.solve(pars=pars, vals0=vals0)
+
+            # check solution status
+            if hasattr(sol, 'stats'):
+                status = sol.stats.get("return_status", "unknown")
+                if status not in ["Solve_Succeeded", "Solved_To_Acceptable_Level"]:
+                    self.logger.warning(f"MPC solve status: {status}")
+                    self.mpc_fail_count += 1
+                    return None
+            return sol
+        except Exception as e:
+            self.logger.error(f"MPC solve exception: {e}")
+            self.nan_count +=1
+            return None
+
     def normalize_observations(self, rho: np.ndarray, v: np.ndarray, w: np.ndarray, u_mpc: np.ndarray, u_prev: np.ndarray, demands: np.ndarray) -> np.ndarray:
         """
         Normalize all components into [0,1]:
@@ -172,77 +274,104 @@ class MetanetMPCEnv(gym.Env):
             d_norm = demands/ max_demands
         Returns concentrated observation vector.
         """
-        rho_norm = rho / self._rho_max
-        v_norm = v / self._v_free
-        w_norm = w / self._max_queue
+        try:
+            rho_norm = np.clip(np.asarray(rho).flatten() / self._rho_max, 0, 1)
+            v_norm = np.clip(np.asarray(v).flatten() / self._v_free, 0, 1)
+            w_norm = np.clip(np.asarray(w).flatten()/ self._max_queue, 0, 2)
 
-        u_mpc_norm = u_mpc / self._u_ub
-        u_prev_norm = u_prev / self._u_ub
+            u_mpc_norm = np.clip(np.array(u_mpc).flatten() / self._u_ub, 0, 1)
+            u_prev_norm = np.clip(np.array(u_prev).flatten() / self._u_ub, 0, 1)
+            d_norm = np.clip(demands / self._max_demands, 0, 1)
 
-        d_norm = demands / self._max_demands
-        return np.concatenate([rho_norm, v_norm, w_norm, u_mpc_norm, d_norm, u_prev_norm])
+        # DEBUG:
+        #print("SHAPES in normalize:")
+        #print("  rho_norm:", rho_norm.shape)
+        #print("  v_norm:  ", v_norm.shape)
+        #print("  w_norm:  ", w_norm.shape)
+        #print("  u_mpc_norm:", u_mpc_norm.shape)
+        #print("  d_norm:  ", d_norm.shape)
+        #print("  u_prev_norm:", u_prev_norm.shape)
+            normalized_obs = np.concatenate([rho_norm, v_norm, w_norm, u_mpc_norm, d_norm, u_prev_norm])
+            # check for NaN in normalized observations
+            if np.any(np.isnan(normalized_obs)):
+                self.logger.error("NaN in normalized observations!")
+                return np.zeros_like(normalized_obs)
+
+            return normalized_obs.astype(np.float32)
+        except Exception as e:
+            self.logger.error(f"Normalization error: {e}")
+            # Return safe fallback observation
+            return np.zeros(self.observation_space.shape[0], dtype=np.float32)
+
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
 
-        # 1) build your time and demands
-        self.time = np.arange(0, self.T_sim + self._T, self._T)
-        self.demands_forecast = create_demands(self.time).T.astype(np.float32)
-        noise = np.random.normal(
-            loc=0.0,
-            scale=self.noise_std[np.newaxis, :],
-            size=self.demands_forecast.shape
-        ).astype(np.float32)
-        self.demands_actual = np.clip(self.demands_forecast + noise, 0.0, None)
+        self.episode_count +=1
+        self.step_count = 0
+        if self.debug_mode:
+            self.logger.info(f"=== RESET Episode {self.episode_count} ===")
+            if self.episode_count > 1:
+                self.logger.info(f"Previous episode stats: "
+                                 f"NaN count: {self.nan_count}, MPC failures: {self.mpc_fail_count}")
 
-        self.current_timestep = 0
+        try:
+            # 1) build your time and demands
+            self.time = np.arange(0, self.T_warmup + self.T_sim + self.T_cooldown + self._T, self._T )
+            # 2) creating demands with low-noise only during the main simulation period
+            self.demands_forecast = create_demands(self.time).T.astype(np.float32)
+            noise = np.random.normal(
+                loc=0.0,
+                scale=self.noise_std[np.newaxis, :],
+                size=self.demands_forecast.shape
+            ).astype(np.float32)
 
-        # 2) draw initial conditions until warm‐up produces no NaN
-        while True:
-            # a) random densities in [0, rho_max]
-            raw_rho = np.random.uniform(0.0, self._rho_max, size=self._n_seg)
-            self.rho_raw = np.round(raw_rho, 1).astype(np.float32)
-            # b) Greenshields equilibrium speeds
-            v_eq = self._v_free * (1.0 - raw_rho / self._rho_max)
-            self.v_raw = np.round(v_eq, 1).astype(np.float32)
-            # c) random queues in [0, max_queue]
-            raw_w = np.random.uniform(0.0, self._max_queue, size=self._n_orig)
-            self.w_raw = np.round(raw_w, 1).astype(np.float32)
+            warm_steps = int(self.T_warmup/ self._T)
+            cool_steps = int(self.T_cooldown/self._T)
+            # zero noise during warm-up and cool-down periods
+            noise[:warm_steps, :] = 0.0
+            noise[-cool_steps:, :] = 0.0
+            self.demands_actual = np.clip(self.demands_forecast + noise, 0.0, None)
+            self.current_timestep = 0
 
+            # 3) force empty initial states (zero densities & queues, freeflow speeds)
+            self.rho_raw = np.zeros(self._n_seg, dtype=np.float32)
+            self.v_raw = np.full(self._n_seg, self._v_free, dtype=np.float32)
+            self.w_raw = np.zeros(self._n_orig, dtype=np.float32)
             # reset previous control & clear MPC warm‐start
             self.u_prev_raw = np.concatenate([
                 np.ones(self._n_ramp, dtype=np.float32),
-                np.full(self._n_vsl, self._v_free, dtype=np.float32),
+                np.full(self._n_vsl, self._v_free, dtype=np.float32)
             ])
             self._sol_mpc_prev = None
 
-            # Warm‐up for 10 minutes (600 s)
+            # 4) warm-up for 30 minutes
             u_reordered = cs.vertcat(
                 self.u_prev_raw[self._n_ramp:],
                 self.u_prev_raw[:self._n_ramp]
             )
-            warm_up_steps = int(600 / (self._T * 3600))
+            warm_up_steps = int(self.T_warmup/ self._T)
+            self.logger.info(f"Starting warm-up: {warm_up_steps} steps ({self.T_warmup * 60:.0f} minutes)")
+
+
             for _ in range(warm_up_steps):
                 x_next, _ = self._dynamics(
                     cs.vertcat(self.rho_raw, self.v_raw, self.w_raw),
                     u_reordered,
-                    self.demands_actual[self.current_timestep, :]
+                    self.demands_forecast[self.current_timestep, :]
                 )
+
                 r1, v1, w1 = cs.vertsplit(
                     x_next,
                     (0, self._n_seg, 2 * self._n_seg, 2 * self._n_seg + self._n_orig)
                 )
+
                 self.rho_raw = np.array(r1).flatten()
                 self.v_raw = np.array(v1).flatten()
                 self.w_raw = np.array(w1).flatten()
+                self.current_timestep +=1
 
-            # if warm‐up stuck you with any NaN, retry draw
-            if not (np.isnan(self.rho_raw).any() or
-                    np.isnan(self.v_raw).any() or
-                    np.isnan(self.w_raw).any()):
-                break
-
-        # 3) run one MPC solve to get your initial baseline
+        # 4) run one MPC solve to get your initial baseline
         sol = self._mpc.solve(
             pars={
                 "rho_0": self.rho_raw,
@@ -254,12 +383,12 @@ class MetanetMPCEnv(gym.Env):
             },
             vals0=self._sol_mpc_prev
         )
+
         self._sol_mpc_prev = sol.vals
         v_ctrl_last = sol.vals["v_ctrl"][:, 0]
         r_last = sol.vals["r"][0]
         self.u_mpc_raw = np.concatenate([r_last, v_ctrl_last]).astype(np.float32).flatten()
-
-        # 4) pack and return normalized state
+        # 5) pack and return normalized state
         self.state_norm = self.normalize_observations(
             self.rho_raw, self.v_raw, self.w_raw,
             self.u_mpc_raw, self.u_prev_raw,
@@ -272,6 +401,8 @@ class MetanetMPCEnv(gym.Env):
         }
         return self.state_norm, {}
 
+
+
     def step(self, action):
         """
         Step function -> T=10 s, DRL = 6 steps (6*10=60s). MPC covers 30 steps (30*10=300s).
@@ -280,6 +411,7 @@ class MetanetMPCEnv(gym.Env):
             3. Accumulate reward
             4. Return normalized observation, reward, done, truncated, info
         """
+
         # combine baseline MPC control with DRL action and saturate
         u_combined = self.saturate(self.u_mpc_raw + action)
         # reorder to match dynamics input
@@ -312,7 +444,7 @@ class MetanetMPCEnv(gym.Env):
             queue_penalty = self.w_p * Ps.sum()
 
             # subtract both as a scalar
-            reward -= (mpc_cost + queue_penalty)/ 1e6
+            reward -= (mpc_cost + queue_penalty)
             self.current_timestep += 1
 
         # update previous control action for next step
@@ -320,26 +452,50 @@ class MetanetMPCEnv(gym.Env):
         # T_sim = 9000 s (length of the simulation)
         # _T = 10 s (length of the time step)
         # T_sim//_T = 9000/10 = 900 steps
-        # Therefore, the simulation is truncated when the current timestep reaches 900
-        truncated = (self.current_timestep >= int(self.T_sim//self._T))
-        # recalculate MPC output every 300 seconds (every 30 steps)
-        if not truncated and self.current_timestep % self._M_mpc == 0:
+
+        # Truncated after warm-up + sim + cool-down
+        total_steps = int(self.T_warmup/self._T) \
+                    + int(self.T_sim/self._T)    \
+                    + int(self.T_cooldown/self._T)
+        truncated = (self.current_timestep >= total_steps)
+        # only re-solve MPC during the main simulation window
+        sim_start = int(self.T_warmup/self._T)
+        sim_end = sim_start + int(self.T_sim/self._T)
+        if (not truncated
+            and sim_start <= self.current_timestep < sim_end
+            and (self.current_timestep - sim_start) % self._M_mpc == 0
+        ):
             # get demand forecast
             d_hat = self.demands_forecast[self.current_timestep:self.current_timestep+self._Np*self._M_mpc, :]
             # pad if forecast horizon exceeds remaining time
             if d_hat.shape[0] < self._Np*self._M_mpc:
                 d_hat = np.pad(d_hat, ((0, self._Np*self._M_mpc-d_hat.shape[0]), (0, 0)), "edge")
+
             sol = self._mpc.solve(
                 pars={"rho_0": self.rho_raw, "v_0": self.v_raw, "w_0": self.w_raw, "d": d_hat.T,
                       "r_last": self.u_prev_raw[: self._n_ramp].reshape(-1, 1),
                       "v_ctrl_last": self.u_prev_raw[self._n_ramp:].reshape(-1, 1)},
                 vals0=self._sol_mpc_prev,
             )
+
             # store new solution
             self._sol_mpc_prev = sol.vals
             v_ctrl_last = sol.vals["v_ctrl"][:, 0]
             r_last = sol.vals["r"][0]
             self.u_mpc_raw = np.concatenate([r_last, v_ctrl_last]).astype(np.float32).flatten()
+
+            # check if the MPC solve was successful - DEBUG
+            #status = sol.stats["return_status"]
+            #if status == "Solve_Succeeded":
+                #self._sol_mpc_prev = sol.vals
+                #v_ctrl_last = sol.vals["v_ctrl"][:, 0]
+                #r_last = sol.vals["r"][0]
+                #self.u_mpc_raw = np.concatenate([r_last, v_ctrl_last]).astype(np.float32)
+           # else:
+                # fallback: keep your old u_mpc_raw, or clip it,
+                # or inject a safe hand-coded controller
+                #print(f"⚠️  MPC failed at step {self.current_timestep}: {status}")
+
 
         self.state_norm = self.normalize_observations(self.rho_raw, self.v_raw, self.w_raw, self.u_mpc_raw, self.u_prev_raw, self.demands_actual[self.current_timestep])
         done = truncated
