@@ -336,6 +336,8 @@ class MetanetMPCEnv(gym.Env):
             self.rho_raw = np.zeros(self._n_seg, dtype=np.float32)
             self.v_raw = np.full(self._n_seg, self._v_free, dtype=np.float32)
             self.w_raw = np.zeros(self._n_orig, dtype=np.float32)
+
+
             # reset previous control & clear MPC warm‐start
             self.u_prev_raw = np.concatenate([
                 np.ones(self._n_ramp, dtype=np.float32),
@@ -351,22 +353,55 @@ class MetanetMPCEnv(gym.Env):
             warm_up_steps = int(self.T_warmup/ self._T)
             self.logger.info(f"Starting warm-up: {warm_up_steps} steps ({self.T_warmup * 60:.0f} minutes)")
 
+            # initializing simulation results storage
+            self.sim_results = {
+                "Density": [], "Flow": [], "Speed": [], "Queue_Length": [],
+                "Origin_Flow": [], "Ramp_Metering_Rate": [], "VSL": [],
+                "u_MPC": [], "u_DRL": []
+            }
 
             for _ in range(warm_up_steps):
                 try:
-                    x_next, _ = self._dynamics(
+                    x_next, q_all = self._dynamics(
                         cs.vertcat(self.rho_raw, self.v_raw, self.w_raw),
                         u_reordered,
                         self.demands_forecast[self.current_timestep, :] # no noise during warm-up
                     )
+                    # DEBUG: Print what x_next contains
+                    x_next_np = np.array(x_next).flatten()
+                    print(f"Step {_}: x_next shape = {x_next_np.shape}")
+                    print(f"  Full state: {x_next_np}")
+                    print(f"  rho (first 6): {x_next_np[:6]}")
+                    print(f"  v (next 6): {x_next_np[6:12]}")
+                    print(f"  w (last 2): {x_next_np[12:14]}")
+
+
+
                     r1, v1, w1 = cs.vertsplit(
                         x_next,
                         (0, self._n_seg, 2 * self._n_seg, 2 * self._n_seg + self._n_orig)
                     )
+
+                    print(f"  After vertsplit:")
+                    print(f"    rho: {np.array(r1).flatten()}")
+                    print(f"    v: {np.array(v1).flatten()}")
+                    print(f"    w: {np.array(w1).flatten()}")
+
                     self.rho_raw = np.maximum(np.array(r1).flatten(), 0.0)
                     self.v_raw = np.maximum(np.array(v1).flatten(), 1.0)
                     self.w_raw = np.maximum(np.array(w1).flatten(), 0.0)
                     self.current_timestep += 1
+
+                    q, q_o = cs.vertsplit(q_all, (0, self._n_seg, self._n_seg + self._n_orig))
+                    self.sim_results["Density"].append(self.rho_raw)
+                    self.sim_results["Speed"].append(self.v_raw)
+                    self.sim_results["Queue_Length"].append(self.w_raw)
+                    self.sim_results["Flow"].append(np.array(q).flatten())
+                    self.sim_results["Origin_Flow"].append(np.array(q_o).flatten())
+                    self.sim_results["VSL"].append(self.u_prev_raw[self._n_ramp:])
+                    self.sim_results["Ramp_Metering_Rate"].append(self.u_prev_raw[:self._n_ramp])
+                    self.sim_results["u_MPC"].append(self.u_mpc_raw)
+                    self.sim_results["u_DRL"].append(np.zeros_like(self.u_prev_raw))
 
                     # Log warm-up progress
                     if self.debug_mode and _ % 50 == 0:
@@ -411,12 +446,7 @@ class MetanetMPCEnv(gym.Env):
                 self.u_mpc_raw, self.u_prev_raw,
                 self.demands_actual[0] #TODO: maybe change to current_timestep to be more consistent
             )
-            # initializing simulation results storage
-            self.sim_results = {
-                "Density": [], "Flow": [], "Speed": [], "Queue_Length": [],
-                "Origin_Flow": [], "Ramp_Metering_Rate": [], "VSL": [],
-                "u_MPC": [], "u_DRL": []
-            }
+
             if self.debug_mode:
                 self.logger.info(f"Reset completed. Post warm-up state checks:")
                 initial_issues = self._check_state_validity(self.rho_raw, self.v_raw, self.w_raw)
@@ -532,7 +562,7 @@ class MetanetMPCEnv(gym.Env):
                         "w_0": self.w_raw,
                         "d": d_hat.T,
                         "r_last": self.u_prev_raw[:self._n_ramp].reshape(-1,1),
-                        "v_ctrl": self.u_prev_raw[self._n_ramp].reshape(-1,1)
+                        "v_ctrl_last": self.u_prev_raw[self._n_ramp].reshape(-1,1)
 
                     }
                     sol = self._safe_mpc_solve(mpc_pars, self._sol_mpc_prev)
@@ -638,10 +668,9 @@ if __name__ == "__main__":
 
     for step_i in range(Num_Steps):
         # Random action within bounds
-        action = np.random.uniform(
-            low=env.action_space.low,
-            high=env.action_space.high
-        ).astype(np.float32)
+        action = np.zeros(shape=(3,))
+            #low=env.action_space.low,
+            ##).astype(np.float32)
 
         obs, reward, done, truncated, step_info = env.step(action)
 
