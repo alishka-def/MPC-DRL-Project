@@ -597,7 +597,7 @@ class MetanetMPCEnv(gym.Env):
                         "w_0": self.w_raw,
                         "d": d_hat.T,
                         "r_last": self.u_prev_raw[:self._n_ramp].reshape(-1,1),
-                        "v_ctrl_last": self.u_prev_raw[self._n_ramp].reshape(-1,1)
+                        "v_ctrl_last": self.u_prev_raw[self._n_ramp:].reshape(-1,1)
 
                     }
                     sol = self._safe_mpc_solve(mpc_pars, self._sol_mpc_prev)
