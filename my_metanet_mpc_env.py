@@ -17,12 +17,12 @@ from gymnasium import spaces
 # Methods
 ########################################################################
 # Generate time-varying demands for two origins (mainline and on-ramp).
-# Warm-up period and cool down is added to demand profile.
+# Warm-up period of half an hour is added to demand profile.
 def create_demands(time: np.ndarray) -> np.ndarray:
     return np.stack(
         (
-            np.interp(time, (0, 15/60, 2.50, 2.75, 3.00, 3.25), (0, 3500, 3500, 1000, 1000, 0)),
-            np.interp(time, (0, 15/60, 30/60, 0.60, 0.85, 1.0, 3.00, 3.25), (0, 500, 500, 1500, 1500, 500, 500, 0))
+            np.interp(time, (0, 15/60, 2.50, 2.75, 3.00), (0, 3500, 3500, 1000, 1000)),
+            np.interp(time, (0, 15/60, 30/60, 0.60, 0.85, 1.0, 3.00), (0, 500, 500, 1500, 1500, 500, 500))
         )
     )
 
@@ -48,7 +48,6 @@ class MetanetMPCEnv(gym.Env):
         self._init_mpc() # set up MPC controller
         self.T_warmup = 30.0/60 # warm-up time of 30 minutes (0.5 hours)
         self.T_sim = 2.5 # simulation time of 2.5 hours (main simulation)
-        self.T_cooldown = 45.0/60 # cool-down time of 45 minutes (0.75 hours)
         self.M_drl = M_drl # number of DRL steps (6*10=60s)
         self.w_u = w_u # weight for the control action
         self.w_p = w_p # penalty weight for queue violations
@@ -315,7 +314,7 @@ class MetanetMPCEnv(gym.Env):
 
         try:
             # 1) build your time and demands
-            self.time = np.arange(0, self.T_warmup + self.T_sim + self.T_cooldown + self._T, self._T )
+            self.time = np.arange(0, self.T_warmup + self.T_sim + self._T, self._T )
             # 2) creating demands with low-noise only during the main simulation period
             self.demands_forecast = create_demands(self.time).T.astype(np.float32)
             noise = np.random.normal(
@@ -325,10 +324,8 @@ class MetanetMPCEnv(gym.Env):
             ).astype(np.float32)
 
             warm_steps = int(self.T_warmup/ self._T)
-            cool_steps = int(self.T_cooldown/self._T)
-            # zero noise during warm-up and cool-down periods
+            # zero noise during warm-up period
             noise[:warm_steps, :] = 0.0
-            noise[-cool_steps:, :] = 0.0
             self.demands_actual = np.clip(self.demands_forecast + noise, 0.0, None)
             self.current_timestep = 0
 
@@ -367,6 +364,30 @@ class MetanetMPCEnv(gym.Env):
                         u_reordered,
                         self.demands_forecast[self.current_timestep, :] # no noise during warm-up
                     )
+
+                    # DEBUG: Looking for queue length
+                    x_next_np = np.array(x_next).flatten()
+                    q_all_np = np.array(q_all).flatten()
+                    print(f"x_next shape: {x_next_np.shape}, content: {x_next_np}")
+                    print(f"q_all shape: {q_all_np.shape}, content: {q_all_np}")
+
+                    if len(q_all_np) > self._n_seg + self._n_orig:
+                        potential_queues = q_all_np[-(self._n_orig):]
+                        print(f"Potential queues from q_all: {potential_queues}")
+
+                    demands = self.demands_forecast[self.current_timestep, :]
+                    q_all_np = np.array(q_all).flatten()
+                    origin_flow = q_all_np[6:8]
+                    queue_change = demands - origin_flow
+
+                    if np.any(np.abs(queue_change)>0.1):
+                        print(f"QUEUE FORMATION DETECTED at step {_}:")
+                        print(f"  Demands: {demands}")
+                        print(f"  Origin flows: {origin_flow}")
+                        print(f"  Queue change: {queue_change}")
+                        print(f"  Current queues: {np.array(x_next)[12:14]}")
+
+
                     # DEBUG: Print what x_next contains
                     x_next_np = np.array(x_next).flatten()
                     print(f"Step {_}: x_next shape = {x_next_np.shape}")
@@ -496,6 +517,20 @@ class MetanetMPCEnv(gym.Env):
                         u_reordered,
                         self.demands_actual[self.current_timestep, :]
                     )
+
+                    demands_drl = self.demands_actual[self.current_timestep, :]
+                    q_all_np = np.array(q_all).flatten()
+                    origin_flow = q_all_np[6:8]
+                    queue_change = demands_drl - origin_flow
+
+                    if np.any(np.abs(queue_change) > 0.1):
+                        print(f"QUEUE FORMATION DETECTED at step {_}:")
+                        print(f"  Demands: {demands_drl}")
+                        print(f"  Origin flows: {origin_flow}")
+                        print(f"  Queue change: {queue_change}")
+                        print(f"  Current queues: {np.array(x_next)[12:14]}")
+
+
                     # update states with bounds checking
                     self.rho_raw, self.v_raw, self.w_raw = cs.vertsplit(x_next, (0, self._n_seg, 2 * self._n_seg, 2 * self._n_seg + self._n_orig))
                     # apply bounds to prevent numerical issues
@@ -756,19 +791,6 @@ if __name__ == "__main__":
             print("Matplotlib not available for plotting")
         except Exception as e:
             print(f"Plotting error: {e}")
-
-    print("\n=== DEBUGGING TEST COMPLETED ===")
-    print("The environment now includes:")
-    print("✅ Fixed queue constraints for both origins")
-    print("✅ Enhanced state validation and logging")
-    print("✅ Safe MPC solving with fallbacks")
-    print("✅ Robust reward calculation")
-    print("✅ Comprehensive error handling")
-    print("✅ Debug information collection")
-    print("✅ Better initial conditions")
-    print("✅ Bounds checking throughout")
-
-
 
     # env.sim_results["Density"] = np.stack(env.sim_results["Density"], axis=-1)
     # env.sim_results["Speed"] = np.stack(env.sim_results["Speed"], axis=-1)
