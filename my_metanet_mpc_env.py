@@ -34,7 +34,7 @@ class MetanetMPCEnv(gym.Env):
         super(MetanetMPCEnv, self).__init__()
 
         # adding debugging flags
-        self.debug_mode = True
+        self.debug_mode = False
         self.step_count = 0
         self.nan_count = 0
         self.mpc_fail_count = 0
@@ -368,33 +368,33 @@ class MetanetMPCEnv(gym.Env):
                     # DEBUG: Looking for queue length
                     x_next_np = np.array(x_next).flatten()
                     q_all_np = np.array(q_all).flatten()
-                    print(f"x_next shape: {x_next_np.shape}, content: {x_next_np}")
-                    print(f"q_all shape: {q_all_np.shape}, content: {q_all_np}")
+                    #print(f"x_next shape: {x_next_np.shape}, content: {x_next_np}")
+                    #print(f"q_all shape: {q_all_np.shape}, content: {q_all_np}")
 
                     if len(q_all_np) > self._n_seg + self._n_orig:
                         potential_queues = q_all_np[-(self._n_orig):]
-                        print(f"Potential queues from q_all: {potential_queues}")
+                        #print(f"Potential queues from q_all: {potential_queues}")
 
                     demands = self.demands_forecast[self.current_timestep, :]
                     q_all_np = np.array(q_all).flatten()
                     origin_flow = q_all_np[6:8]
                     queue_change = demands - origin_flow
 
-                    if np.any(np.abs(queue_change)>0.1):
-                        print(f"QUEUE FORMATION DETECTED at step {_}:")
-                        print(f"  Demands: {demands}")
-                        print(f"  Origin flows: {origin_flow}")
-                        print(f"  Queue change: {queue_change}")
-                        print(f"  Current queues: {np.array(x_next)[12:14]}")
+                    #if np.any(np.abs(queue_change)>0.1):
+                        #print(f"QUEUE FORMATION DETECTED at step {_}:")
+                        #print(f"  Demands: {demands}")
+                        #print(f"  Origin flows: {origin_flow}")
+                        #print(f"  Queue change: {queue_change}")
+                        #print(f"  Current queues: {np.array(x_next)[12:14]}")
 
 
                     # DEBUG: Print what x_next contains
-                    x_next_np = np.array(x_next).flatten()
-                    print(f"Step {_}: x_next shape = {x_next_np.shape}")
-                    print(f"  Full state: {x_next_np}")
-                    print(f"  rho (first 6): {x_next_np[:6]}")
-                    print(f"  v (next 6): {x_next_np[6:12]}")
-                    print(f"  w (last 2): {x_next_np[12:14]}")
+                    #x_next_np = np.array(x_next).flatten()
+                    #print(f"Step {_}: x_next shape = {x_next_np.shape}")
+                    #print(f"  Full state: {x_next_np}")
+                    #print(f"  rho (first 6): {x_next_np[:6]}")
+                    #print(f"  v (next 6): {x_next_np[6:12]}")
+                    #print(f"  w (last 2): {x_next_np[12:14]}")
 
 
 
@@ -403,10 +403,10 @@ class MetanetMPCEnv(gym.Env):
                         (0, self._n_seg, 2 * self._n_seg, 2 * self._n_seg + self._n_orig)
                     )
 
-                    print(f"  After vertsplit:")
-                    print(f"    rho: {np.array(r1).flatten()}")
-                    print(f"    v: {np.array(v1).flatten()}")
-                    print(f"    w: {np.array(w1).flatten()}")
+                    #print(f"  After vertsplit:")
+                    #print(f"    rho: {np.array(r1).flatten()}")
+                    #print(f"    v: {np.array(v1).flatten()}")
+                    #print(f"    w: {np.array(w1).flatten()}")
 
                     self.rho_raw = np.maximum(np.array(r1).flatten(), 0.0)
                     self.v_raw = np.maximum(np.array(v1).flatten(), 1.0)
@@ -523,12 +523,12 @@ class MetanetMPCEnv(gym.Env):
                     origin_flow = q_all_np[6:8]
                     queue_change = demands_drl - origin_flow
 
-                    if np.any(np.abs(queue_change) > 0.1):
-                        print(f"QUEUE FORMATION DETECTED at step {_}:")
-                        print(f"  Demands: {demands_drl}")
-                        print(f"  Origin flows: {origin_flow}")
-                        print(f"  Queue change: {queue_change}")
-                        print(f"  Current queues: {np.array(x_next)[12:14]}")
+                    #if np.any(np.abs(queue_change) > 0.1):
+                        #print(f"QUEUE FORMATION DETECTED at step {_}:")
+                        #print(f"  Demands: {demands_drl}")
+                        #print(f"  Origin flows: {origin_flow}")
+                        #print(f"  Queue change: {queue_change}")
+                        #print(f"  Current queues: {np.array(x_next)[12:14]}")
 
 
                     # update states with bounds checking
